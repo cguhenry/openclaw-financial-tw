@@ -93,7 +93,11 @@ docker exec finmind-tw-mcp pip list | grep -E "tqdm|finmind|mcp|uvicorn"
 
 ## ⚙️ OpenClaw MCP 設定
 
-在 `~/.openclaw/openclaw.json` 的 `mcpServers` 區塊加入：
+在 `~/.openclaw/openclaw.json` 的 `mcpServers` 區塊加入。以下兩種情境，選擇適合你的：
+
+### 情境 A：OpenClaw 與 SSE 伺服器在同一台機器
+
+（Mode A 本機直接跑，或 Docker 容器也裝在同一台 NAS）
 
 ```json
 {
@@ -106,9 +110,50 @@ docker exec finmind-tw-mcp pip list | grep -E "tqdm|finmind|mcp|uvicorn"
 }
 ```
 
+### 情境 B：OpenClaw 與 SSE 容器在不同機器（區域網路）
+
+（Docker 容器裝在 NAS `192.168.3.33`，另一台機器的 OpenClaw 要連過來）
+
+首先，確認 NAS 上的容器有正確設定：
+
+**在 NAS 的 `.env` 檔案中加入：**
+```dotenv
+MCP_HOST=0.0.0.0
+```
+
+**確認 `docker-compose.yml` 的 port 綁定：**
+```yaml
+ports:
+  - "0.0.0.0:9123:9123"   # 不是 "9123:9123"，而是 "0.0.0.0:9123:9123"
+```
+
+然後在**另一台機器的** `~/.openclaw/openclaw.json` 中填入 NAS 的 IP：
+
+```json
+{
+  "mcpServers": {
+    "finmind-tw": {
+      "url": "http://192.168.3.33:9123/sse",
+      "transport": "sse"
+    }
+  }
+}
+```
+
+> ⚠️ **安全提醒**：將 `MCP_HOST=0.0.0.0` 會讓 SSE 服務暴露在整個區域網路中。請確認 NAS 在可信任的網段（如家用路由器 NAT 後方），不要在辦公室或公共網路環境中這樣設定。
+
 ```bash
 openclaw config validate
 openclaw gateway restart
+```
+
+設定完成後，確認 SSE 端點可達：
+
+```bash
+# 從 OpenClaw 機器測試
+curl -s -I http://127.0.0.1:9123/sse
+# 或從另一台機器測試
+curl -s -I http://192.168.3.33:9123/sse
 ```
 
 ---
