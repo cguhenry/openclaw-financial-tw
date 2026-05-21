@@ -1,0 +1,22 @@
+services:
+  finmind-tw-mcp:
+    build: .
+    container_name: finmind-tw-mcp
+    env_file:
+      - .env
+    environment:
+      MCP_TRANSPORT: sse
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 9123
+      MCP_SSE_PATH: /sse
+      MCP_MESSAGE_PATH: /messages/
+      MCP_STREAMABLE_HTTP_PATH: /mcp
+    ports:
+      - "9123:9123"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "scripts/verify_mcp_sse.py"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 20s

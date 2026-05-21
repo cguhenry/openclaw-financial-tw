@@ -1,0 +1,396 @@
+# OpenClaw Financial TW 開發歷程與維護手冊
+
+> 本文件記錄 `openclaw-financial-tw` 專案的完整開發過程、技術決策、後續維護方向，以及交接給新開發者所需的一切上下文。
+> 
+> **預設讀者**：接手維護或繼續開發本專案的工程師。
+> **最後更新**：2026-05-20
+
+---
+
+## 一、專案起源與目標
+
+### 1.1 為何會有這個專案
+
+`anthropics/financial-services` 是一個以西方（特別是美股）為中心的開源金融分析技能庫。Henry 的需求很直接：OpenClaw 已經是他的個人 AI 助理，他也習慣在上面做研究，但這個技能庫對台灣股市幾乎是空白——沒有 TAIEX、沒有三大法人資料、沒有繁體中文財報解析、沒有任何台灣總經數據。
+
+這個專案的目的，就是把 OpenClaw 變成一個合格的「台股研究助理」。
+
+### 1.2 核心目標
+
+1. **讓 OpenClaw 能夠查詢台灣股市資料**：股價、財報、籌碼、重大訊息、總經數據
+2. **建立台灣版的財務分析技能**：DCF、Comps、Chip Analysis、晨報自動推送
+3. **以最少成本達成**：所有資料來源原則上免費（非商業用途），不需要訂閱 TEJ 或 CMoney
+
+### 1.3 授權與使用限制
+
+| 項目 | 說明 |
+|------|------|
+| FinMind | 免費版僅限**教育、非商業用途**。商業產品上線前需升級付費方案。|
+| Fugle API | 基本方案免費，用於歷史日K 與即時報價備援。|
+| TWSE / MoPS / CBC / DGBAS | 政府開放資料，完全免費。|
+| Anthropic financial-services | Apache 2.0，可自由 fork 與修改。|
+
+**本專案不構成投資建議。** 所有輸出資料僅供參考。
+
+---
+
+## 二、計畫與實作對照
+
+原始計畫（`openclaw-financial-tw-plan.md`）極為龐大，估計 380 小時（~10–13 週全職）。實際開發採用**精實迭代**，跳過了部分項目，優先交付核心價值。
+
+### 2.1 各 Phase 實作對照表
+
+| Phase | 計畫內容 | 實際完成度 | 說明 |
+|-------|---------|----------|------|
+| Phase 0 | 環境建置、申請 API Key | ✅ 完成 | FinMind + Fugle 申請完成 |
+| Phase 1 | `mcp-finmind` 核心 MCP 伺服器 | ✅ 完成 | 14 個 tool，經 spot check 驗證 |
+| Phase 1.5 | OpenClaw SSE 傳輸 wiring | ✅ 完成 | HTTP/SSE，port 9123 |
+| Phase 2 | 實時報價、重大訊息、XBRL | ✅ 完成 | Fugle 即時報價 + MOPS 重大訊息 + 外資持股，tool 數從 14 增至 22 |
+| Phase 3 | 台灣技能層（DCF / Comps / Chip...）| ✅ 完成 | Skills: tw-dcf-model, tw-comps, tw-chip-analysis, tw-earnings-analysis, tw-financial-statements |
+| Phase 4 | 總經資料（GDP / CPI / M2）| ✅ 完成 | Sources: CBC + DGBAS，tool 數增至 23 |
+| Phase 5 | Agent 整合與晨報自動化 | ⚠️ 部分完成 | Skills 完成；晨報 cron 最初斷過，2026-05-20 修復並建立兩路發送（Discord + LINE）|
+| Phase 6 | 測試、部署、合規、文件 | ⚠️ 部分完成 | Docker + compose 完成；DEPLOYMENT.md / USAGE.md 後補；`.env.example` 完成；未做單元測試套件 |
+
+### 2.2 跳過或延後的項目
+
+| 項目 | 原因 |
+|------|------|
+| TEJ / TCRI 法人預估 EPS | 付費項目，且需要商業授權；多數散戶/個人研究者不需要 |
+| SEMI Book-to-Bill 結構化資料 | 沒有穩定的機器可讀資料源，改為在 `tw-sector-overview` skill 中以 search workflow 替代 |
+| XBRL 附表解析（關聯人交易等）| 已有 FinMind 主體財報；XBRL 解析依賴 `arelle`，增加部署複雜度 |
+| 單元測試覆蓋率報告 | 時程考量；目前以 spot check 驗證替代 |
+| ClawHub 開源發布 | 仍為個人使用，未到社群發布階段 |
+
+---
+
+## 三、系統架構
+
+### 3.1 整體架構圖
+
+```
+┌──────────────────────────────────────────────┐
+│         OpenClaw Agent (AI 大腦)              │
+│  技能層：skills/tw-* (Markdown SKILL.md)      │
+└──────────────────┬───────────────────────────┘
+                    │ MCP tool calls
+                    ▼
+┌──────────────────────────────────────────────┐
+│    MCP SSE Server (finmind_server.py)         │
+│  Port: 9123                                   │
+│  模式: SSE (預設) / stdio (測試) / streamable-http │
+│  23+ tools，含技術面/基本面/籌碼面/總經        │
+└──────────────────┬───────────────────────────┘
+                    │ API calls
+         ┌──────────┴──────────┐
+         ▼                     ▼
+   FinMind API            CBC / DGBAS
+   (主力資料源)           (總經資料)
+```
+
+### 3.2 技能層（Skills）
+
+| 技能 | 指令 | 功能 |
+|------|------|------|
+| `tw-morning-briefing` | — | 晨間簡報生成（排程自動發送）|
+| `tw-market-researcher` | — | 台股研究統整 skill，協調多資料源 |
+| `tw-equity-research` | — | 個股研究報告生成 |
+| `tw-earnings-calendar` | — | 法說會與財報時程追蹤 |
+| `tw-dcf-model` | `/twdcf` | 台灣版 DCF 估值 |
+| `tw-comps` | `/twcomps` | 同業比較分析 |
+| `tw-chip-analysis` | `/twchip` | 籌碼面分析 |
+| `tw-earnings-analysis` | `/twearnings` | 財報季分析 |
+| `tw-financial-statements` | `/twfs` | 繁中財報解析 |
+| `tw-sector-overview` | `/twsector` | 產業分析 |
+
+### 3.3 MCP 工具（MCP Server）
+
+所有工具集中在 `mcp/finmind_server.py`，共 23+ 個 tool，分為四類：
+
+**技術面**
+- `get_stock_price_daily` / `get_stock_price_realtime`
+- `get_per_pbr`
+- `get_taiex_index` / `get_taiex_total_return_index`
+
+**基本面**
+- `get_income_statement` / `get_balance_sheet` / `get_cash_flow_statement`
+- `get_month_revenue`
+- `get_dividend_policy` / `get_exdividend_result`
+
+**籌碼面**
+- `get_institutional_flows`
+- `get_margin_short_sale`
+- `get_shareholding_dist` / `get_foreign_holding_pct`
+- `get_broker_trading`
+
+**總經**
+- `get_usd_ntd_rate`
+- `get_interest_rates`
+- `get_money_supply`
+- `get_cpi_data`
+- `get_gdp_data`
+
+**整合工具（Phase 5）**
+- `get_tw_market_briefing` — 晨報（全框一次抓完）
+- `get_investor_conference_events` — 法說會行程
+- `get_equity_research_snapshot` — 個股研究快照
+
+### 3.4 資料來源優先順序
+
+```
+行情 / 財報：FinMind → TWSE OpenAPI（fallback）
+即時報價：Fugle → TWSE（收盤後）
+籌碼面：FinMind → TWSE
+重大訊息：MOPS 官網 Ajax → TWSE 首頁（fallback）
+總經：CBC / DGBAS 官方 CSV
+```
+
+---
+
+## 四、技術決策記錄
+
+### 4.1 為何選擇 SSE 而非 stdio 作為主要傳輸？
+
+**問題**：OpenClaw 2026+ 版本的 MCP 設定需要網路傳輸格式，不接受 `stdio`。
+
+**選擇**：SSE（Server-Sent Events）。
+
+**替代方案考慮過**：
+- `streamable-http`：OpenClaw 有支援但需要額外設定 header，文件不足，先跳過
+- 直接 stdio：被 OpenClaw 2026 的新設定擋住
+
+**結論**：`finmind_server.py` 現在支援三種模式啟動：
+```python
+# SSE（預設，供 OpenClaw 讀取）
+python finmind_server.py
+
+# stdio（本地測試）
+python finmind_server.py --transport stdio
+
+# streamable-http（未來探索）
+python finmind_server.py --transport streamable-http
+```
+
+### 4.2 為何 port 從 8000 改為 9123？
+
+Henry 的 NAS 另一個服務已占用 8000。改 port 準則：
+- 只改 `.env`/`.env.example`/`docker-compose.yml`/`Dockerfile` 這四個設定源
+- Python 程式碼透過 `MCP_PORT` 環境變數讀取，不硬寫
+- 所有文件同步更新
+
+### 4.3 為何晨報 cron 是兩個獨立的 job？
+
+Discord 和 LINE 是不同平台。從 Discord 綁定的 OpenClaw 會話嘗試直接發 LINE，會被跨平台限制擋住。解決方式：兩個獨立的 cron job，各自綁定自己的 `delivery` channel，各自抵達各自的平台。
+
+### 4.4 為何 FinMind 是主力而非 TWSE OpenAPI？
+
+FinMind 提供的欄位更完整（包含還原股價、分點、融資券等），且 Python SDK 使用簡單。TWSE OpenAPI 主要作為 fallback。
+
+### 4.5 為何不用 `arelle` 做 XBRL 解析？
+
+`arelle` 是完整的 XBRL 工具鏈，但包裝繁瑣。FinMind 已經把 XBRL 轉好成 pandas DataFrame，而且主要分析工作流需要的「財報三表」已有完整覆蓋。純 XBRL 解析延後處理。
+
+---
+
+## 五、開發歷程（逐 phase 記錄）
+
+### Phase 0：環境建置
+**日期**：2026-05-19  
+**主要產出**：
+- FinMind 帳號申請完成，取得 Token
+- Fugle 免費 API Key 取得
+- OpenClaw 環境確認
+- 完成 `openclaw-financial-tw-plan.md`
+
+---
+
+### Phase 1：MCP 核心（技術面 + 基本面）
+**日期**：2026-05-19  
+**主要產出**：
+- `mcp/finmind_server.py` 初版，14 個 tool
+- 驗證：daily price、income statement、monthly revenue、institutional flows、dividend policy
+- MCP stdio 協定測試通過
+
+---
+
+### Phase 1.5：OpenClaw SSE 整合
+**日期**：2026-05-19  
+**主要產出**：
+- `scripts/run_finmind_sse.sh` 啟動腳本
+- `scripts/verify_mcp_sse.py` 健康檢查
+- `~/.openclaw/openclaw.json` 中的 `finmind-tw` 設定（port 9123，SSE transport）
+- `openclaw config validate` 通過
+
+---
+
+### Phase 2：實時報價 + 重大訊息（擴充至 22 tools）
+**日期**：2026-05-19  
+**主要產出**：
+- 新增 `get_realtime_quote`：Fugle 即時報價 API
+- 新增 `get_major_announcements`：MOPS 官網 Ajax 介接，支援 market 參數過濾
+- 新增 `get_foreign_holding_pct`：外資持股比率
+- 確認 MOPS market `TYPEK` mapping：`all / sii / otc / rotc / pub`
+
+---
+
+### Phase 3：台灣技能層
+**日期**：2026-05-19  
+**主要產出**：
+- `skills/tw-dcf-model/SKILL.md`（台灣 DCF，含 WACC 台灣化參數）
+- `skills/tw-comps/SKILL.md`（同業比較）
+- `skills/tw-chip-analysis/SKILL.md`（籌碼分析）
+- `skills/tw-earnings-analysis/SKILL.md`（財報季分析）
+- `skills/tw-financial-statements/SKILL.md`（繁中財報解析）
+- `openclaw skills check` 全部通過
+
+---
+
+### Phase 4：總經資料（tool 數增至 23）
+**日期**：2026-05-19  
+**主要產出**：
+- `get_usd_ntd_rate`：CBC 每日/每月/每年匯率 CSV
+- `get_interest_rates`：CBC 利率 CSV
+- `get_money_supply`：CBC M1A/M1B/M2 月均/月底
+- `get_cpi_data`：DGBAS CPI XML
+- `get_gdp_data`：DGBAS SDMX-JSON（用 Henry 提供的正確 endpoint pattern）
+- `get_taiex_total_return_index`：FinMind TAIEX 全益指數
+- `skills/tw-sector-overview/SKILL.md`
+
+---
+
+### Phase 5：Agent 整合 + 晨報自動化
+**日期**：2026-05-19（初版），2026-05-20（cron 修復）  
+**初版產出**：
+- `get_tw_market_briefing`：一口氣抓完晨報所需全部資料
+- `get_investor_conference_events`：法說會行程
+- `get_equity_research_snapshot`：個股研究快照
+- `skills/tw-equity-research/SKILL.md`
+- `skills/tw-morning-briefing/SKILL.md`
+- `skills/tw-earnings-calendar/SKILL.md`
+
+**2026-05-20 修復產出**：
+- 晨報腳本修正：用專案 `.venv/bin/python` 而非系統 `python3`（解決 `ModuleNotFoundError`）
+- 兩路 cron job 建立：`tw-morning-briefing-0830-discord` + `tw-morning-briefing-0830-line`
+- `scripts/send_tw_morning_briefing.sh` 便利腳本
+
+---
+
+### Phase 6：部署、文件、分享
+**日期**：2026-05-20  
+**產出**：
+- `Dockerfile` + `docker-compose.yml`：一鍵容器化
+- `docs/DEPLOYMENT.md`：原始英文部署說明
+- `docs/DEPLOYMENT-ZH.md`：繁體中文詳解版
+- `docs/USAGE.md`：使用說明
+- `.env.example`：分享用範本（不含真實 API key）
+- Port 全域調整：8000 → 9123
+
+---
+
+### Bug 修復階段（2026-05-21）
+
+**日期**：2026-05-21
+
+9 個 bug 一次性修復，修改後的檔案由 Henry 放置於 `projects/openclaw-financial-tw-debug/`，經 code review 後同步進主目錄。
+
+| Bug 編號 | 嚴重性 | 問題摘要 | 修復方式 |
+|---------|--------|---------|---------|
+| Bug 1 | 🔴 | `_fetch_json_url` 繞路用假的 `httpx.Response` 再呼叫 `.json()`，且未 import `json` | 改用 `json.loads(content)` |
+| Bug 2 | 🔴 | `_load_dotenv()` 每次呼叫 `_finmind_token()` / `_fugle_api_key()` 都重讀一次 `.env` 磁碟 | 加 `_dotenv_loaded: bool = False` 模組級旗標，讀過一次就跳過 |
+| Bug 3 | 🔴 | `get_tw_market_briefing` 的 `future.result()` 任一炸掉就讓整個晨報失敗 | 每個 future 個別包 try/except，失敗存 `{"_error": "...", "data": []}` |
+| Bug 4 | 🟡 | `get_gdp_data` 預設 `end_time="2025-Q4"` 已過期，2026 年取不到新資料 | 改 `end_time: str | None = None`，動態計算當前季度 |
+| Bug 5 | 🟡 | `get_equity_research_snapshot` 8 個 HTTP 請求序列執行（延遲 8 倍）| 改 `ThreadPoolExecutor(max_workers=7)` 並行 |
+| Bug 6 | 🟡 | `get_equity_research_snapshot` 固定 `start_date="2026-01-01"` + 缺 `balance_sheet` / `cash_flow_statement` | 改動態 `datetime.now() - timedelta(days=365)`，補齊兩張財報 |
+| Bug 7 | 🟠 | `get_exdividend_result`（除權除息結果）在 Plan 和 Skill 文件中用到但從未實作 | 新增 tool，接 FinMind `TaiwanStockDividendResult` |
+| Bug 8 | 🟠 | `get_taiex_index`（加權價格指數）未實作，只有 TRI（全益指數）| 新增 tool，接 FinMind `TaiwanStockMarketIndex`，`get_taiex_total_return_index` 保留 |
+| Bug 10 | 🟡 | `tw_morning_briefing.py` renderer 未處理 Bug 3 的 partial-error payload，dict/list 判斷也有問題 | 新增 `_safe_data()` / `_error_label()` helpers；`price/close/Close` 三層 fallback；footer 列出所有失敗來源 |
+| Bug 11 | 🟡 | 法說會/業績發表會未過濾過期場次（「AI及綠能」（已結束）、「自行車產業」（已結束）仍在簡報中）| 新增 `_parse_event_date_range()` 解析「月 日到月 日」並正確處理跨年（如「12月20日到1月20日」→「2027-01-20」）；`_is_event_expired()` 以 `end_date < 今天` 過濾；`get_investor_conference_events` 統一先做日期過濾再截長度 |
+
+**同步後檔案**：
+- `mcp/finmind_server.py` → 完整同步（語法驗證通過）
+- `scripts/tw_morning_briefing.py` → 完整同步（語法驗證通過）
+
+---
+
+## 六、現有腳本總覽
+
+| 腳本 | 用途 |
+|------|------|
+| `scripts/tw_morning_briefing.py` | 晨報生成主程式（排程呼叫）|
+| `scripts/send_tw_morning_briefing.sh` | 晨報產出 + Discord/LINE 發送便利包 |
+| `scripts/run_finmind_sse.sh` | 啟動 MCP SSE 伺服器 |
+| `scripts/ensure_finmind_sse.sh` | 確保 SSE 服務一直活著（定期檢查 + 重啟）|
+| `scripts/verify_mcp_finmind.py` | 驗證 FinMind API 可正常讀取 |
+| `scripts/verify_mcp_protocol.py` | 驗證 MCP stdio 協定溝通正常 |
+| `scripts/verify_mcp_sse.py` | 驗證 SSE 端點可達 |
+
+---
+
+## 七、維護指南
+
+### 7.1 新增一個 MCP Tool
+
+1. 在 `mcp/finmind_server.py` 的 tool 列表中新增 method
+2. 在 `mcp_server.add_tool()` decorator 下註冊
+3. 用 `scripts/verify_mcp_protocol.py` 確認新 tool 出現在清單
+4. 若需要新資料源，先確認 endpoint 可達，再寫進 `helpers/`（統一的 HTTP fetch 介面）
+
+### 7.2 新增一個 Skill
+
+1. 在 `~/.openclaw/workspace/skills/tw-<name>/SKILL.md` 建立 skill
+2. 參考現有 skills 的 front-matter 格式（`name`、`description`、`triggers`）
+3. `openclaw skills check` 確認新 skill 可見
+
+### 7.3 修改 Port
+
+見上方 4.2 節。建議日後如果有類似的「環境變數綁定」的設定，都用此模式：`.env` 單一來源，Python 讀 `os.getenv`。
+
+### 7.4 更新 cron job
+
+```bash
+# 列出所有排程
+cron action=list
+
+# 立即觸發測試
+cron action=run jobId=<id>
+
+# 查看執行歷史
+cron action=runs jobId=<id>
+```
+
+### 7.5 資料來源斷線時的處理
+
+各 tools 使用的 helper 已有重試邏輯（HTTP transient error retry）。若某個來源長期失效：
+1. 找到對應的 tool
+2. 在 helper 或 tool 內加入備援邏輯（參考 Phase 2 重大訊息的 TWSE fallback 模式）
+
+---
+
+## 八、已知限制
+
+| 限制 | 說明 |
+|------|------|
+| LINE 跨平台驗證 | 在 Discord 綁定的 OpenClaw 會話無法直接實測 LINE 發送，需在 LINE 綁定會話中單獨驗證 |
+| FinMind 非商業限制 | 若計畫商業化，需升級付費方案 |
+| GDP DGBAS endpoint | 依賴特定的 SDMX pattern，若 DGBAS 改版可能需要重新找 endpoint |
+| T+1 資料時間差 | 台股當日收盤資料在收盘后 1~2 小時才更新，晨報並非即時行情 |
+| 期貨/選擇權 | FinMind 有覆蓋但本專案目前未實作對應的 skill |
+| XBRL 附表 | 尚未實作；目前以 FinMind 主體財報覆蓋主要需求 |
+
+---
+
+## 九、關鍵聯繫人與參考資源
+
+| 項目 | 內容 |
+|------|------|
+| FinMind | <https://finmindtrade.com/> |
+| FinMind llms.txt | <https://finmind.github.io/llms-full.txt> |
+| Fugle API | <https://developer.fugle.tw/> |
+| TWSE OpenAPI | <https://openapi.twse.com.tw/> |
+| MOPS 重大訊息 | <https://mops.twse.com.tw/mops/web/t05sr01_1> |
+| CBC 開放資料 | <https://www.cbc.gov.tw/> |
+| DGBAS 統計資料 | <https://www.dgbas.gov.tw/> |
+| Anthropic financial-services | <https://github.com/anthropics/anthropic-financial-services> |
+
+---
+
+*本文件為內部維護文件，記錄真實開發過程。如有新開發者接手，請同步更新本文檔。*

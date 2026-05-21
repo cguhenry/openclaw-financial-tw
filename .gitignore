@@ -1,0 +1,35 @@
+# Environment and secrets — NEVER commit these
+.env
+*.env
+token.json
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+# Local runtime files
+run/
+*.log
+*.pid
+
+# Build artifacts
+skills.zip
+dist/
+build/
+
+# Data cache
+data/cache/
+
+# Synology NAS metadata
+@eaDir/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
