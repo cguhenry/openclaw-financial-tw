@@ -280,7 +280,7 @@ def _to_int(value: str | None) -> int | None:
 def _yyyymmdd_to_iso(value: str | None) -> str | None:
     if not value:
         return None
-    digits = re.sub(r"D", "", value)
+    digits = re.sub(r"\D", "", value)
     if len(digits) != 8:
         return None
     return f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}"
@@ -1074,6 +1074,11 @@ def get_tw_market_briefing(announcement_limit: int = 8) -> dict[str, Any]:
         "cpi": results["cpi"]["data"],
         "gdp": results["gdp"]["data"],
     }
+    errors = {
+        name: result["_error"]
+        for name, result in results.items()
+        if isinstance(result, dict) and result.get("_error")
+    }
     return {
         "source": "OpenClaw Taiwan Financial MCP",
         "dataset": "tw_market_briefing",
@@ -1084,6 +1089,7 @@ def get_tw_market_briefing(announcement_limit: int = 8) -> dict[str, Any]:
         "taiex_total_return_index": results["taiex"]["data"],
         "major_announcements_summary": results["announcements"]["summary"],
         "investor_conference_events": results["events"]["data"],
+        "errors": errors,
         "official_sources": {
             "cbc": [CBC_USD_NTD_DAILY_CSV, CBC_POLICY_RATES_CSV, CBC_MONEY_SUPPLY_AVG_MONTHLY_CSV],
             "dgbas_cpi": DGBAS_CPI_XML,

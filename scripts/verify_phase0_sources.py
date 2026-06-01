@@ -10,6 +10,19 @@ import urllib.parse
 import urllib.request
 
 
+def load_dotenv() -> None:
+    env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
+    if not os.path.exists(env_path):
+        return
+    with open(env_path, "r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key, value)
+
+
 def fetch_json(url: str, headers: dict[str, str] | None = None, timeout: int = 20):
     req = urllib.request.Request(url, headers=headers or {})
     with urllib.request.urlopen(req, timeout=timeout) as response:
@@ -58,6 +71,7 @@ def check_fugle() -> tuple[bool, str]:
 
 
 def main() -> int:
+    load_dotenv()
     checks = [
         ("finmind", check_finmind),
         ("twse", check_twse),
@@ -77,4 +91,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

@@ -15,6 +15,18 @@ ROOT = Path(__file__).resolve().parents[1]
 SERVER_PATH = ROOT / "mcp" / "finmind_server.py"
 
 
+def _load_dotenv() -> None:
+    env_path = ROOT / ".env"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key, value)
+
+
 def load_server():
     spec = importlib.util.spec_from_file_location("finmind_server", SERVER_PATH)
     if spec is None or spec.loader is None:
@@ -96,13 +108,22 @@ def render_briefing(payload: dict[str, Any]) -> str:
     )
 
     # collect any failed sources to surface in the footer
-    errors: list[str] = []
-    for label, raw in [
-        ("TAIEX TRI", taiex_raw), ("美股", us_raw), ("法人彙總", inst_raw),
-        ("重大訊息", announcements_raw), ("法說會", events_raw),
-    ]:
-        if isinstance(raw, dict) and raw.get("_error"):
-            errors.append(f"{label}: {raw['_error']}")
+    label_map = {
+        "usd_ntd": "USD/NTD",
+        "policy_rates": "政策利率",
+        "m2": "M2",
+        "cpi": "CPI",
+        "gdp": "GDP",
+        "us_market": "美股",
+        "institutional": "法人彙總",
+        "taiex": "TAIEX TRI",
+        "announcements": "重大訊息",
+        "events": "法說會",
+    }
+    errors = [
+        f"{label_map.get(name, name)}: {message}"
+        for name, message in (payload.get("errors") or {}).items()
+    ]
 
     lines = [
         "台股晨間簡報",
@@ -182,6 +203,7 @@ def deliver(message: str, deliveries: list[str]) -> None:
 
 
 def deliveries_from_env() -> list[str]:
+    _load_dotenv()
     raw = os.getenv("TW_MORNING_DELIVERIES", "").strip()
     if not raw:
         return []
@@ -194,6 +216,7 @@ def deliveries_from_env() -> list[str]:
 
 
 def main() -> int:
+    _load_dotenv()
     parser = argparse.ArgumentParser()
     parser.add_argument("--announcement-limit", type=int, default=8)
     parser.add_argument("--deliver", action="append", default=[], help="Delivery as channel:target. Repeat for Discord and LINE.")
