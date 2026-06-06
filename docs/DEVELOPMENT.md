@@ -193,6 +193,91 @@ FinMind 提供的欄位更完整（包含還原股價、分點、融資券等）
 
 ## 五、開發歷程（逐 phase 記錄）
 
+### 2026-06-06：股票分析儀表板（Dashboard）增量開發記錄
+
+本段記錄建立在既有 `openclaw-financial-tw` repo 內的 dashboard 子系統，採「不另開 repo、在原專案內擴充」策略。
+
+#### 決策摘要
+
+- **不另開新專案**：儀表板直接放在 `dashboard/api` 與 `dashboard/web`，避免資料層重複維護。
+- **部署改為 Docker-first**：優先支援 NAS、一般 Docker Host、本機開發與輕量 VPS；Synology 僅做部署文件差異化，不把路徑硬寫進通用 compose。
+- **報價模式雙軌**：前端必須同時支援 `即時自動報價` 與 `使用者手動更新`。
+- **前端 API 走同 origin**：瀏覽器不直接打 `:9180`，改為由 web 容器代理 `/api` 到 dashboard API，解決同區網 NAS 存取時的 `Failed to fetch` / CORS 問題。
+
+#### Phase 0：部署與工程骨架
+
+**主要產出**
+
+- `docker-compose.yml` 納入 dashboard profile
+- `.env.example` 補齊 dashboard 相關變數（quote/chart/analysis TTL、CORS、port）
+- `docs/deploy-nas.md` 新增 Synology NAS 啟動、驗證、CORS 與常見錯誤排查
+- README 補上 dashboard 啟動與同 origin API proxy 說明
+
+**關鍵做法**
+
+- web 容器用 Nginx 代理 `/api/*` → `stock-dashboard-api:9180`
+- Vite dev server 也配置 `/api` proxy，讓本機開發與 Docker 行為一致
+- 外部對外 port 預設改為 `9080`，避開 NAS 上既有 `8080` 衝突
+
+#### Phase 1：MVP 畫面與 API/BFF
+
+**主要產出**
+
+- 新增 `dashboard/api` FastAPI 服務
+- 新增 `/api/health`、`/api/stocks/{stock_id}/quote`、`/api/stocks/{stock_id}/chart`、`/api/stocks/{stock_id}/refresh`
+- 新增 `dashboard/web` React + Vite 單頁前端
+- 完成深色儀表板骨架、股票代號輸入、報價模式切換、股票標頭、日線 K 棒與成交量
+
+**資料策略**
+
+- quote / chart 由 dashboard API 包住既有 `mcp/finmind_server.py`，避免前端直接碰原始資料源
+- 加入簡單 TTL cache，降低同一股票反覆查詢時的延遲與 API 壓力
+
+#### Phase 2：技術分析第一輪落地
+
+**主要產出**
+
+- 新增 `/api/stocks/{stock_id}/analysis`
+- 後端完成：
+  - MA5 / MA20 / MA60
+  - Bollinger Bands
+  - KD
+  - MACD
+  - 關鍵價位（壓力 / 回檔 / 支撐）
+  - 技術總覽與指標總表
+- 前端完成：
+  - 主圖疊加布林通道
+  - 同面板子圖：成交量、KD、MACD
+  - 主圖關鍵價位標線
+  - 右側技術分析總覽面板
+  - 獨立技術指標表格元件
+
+**文案規則**
+
+- 技術總覽不再只回傳簡單的「多頭 / 空頭 / 中性」
+- 綜合判讀會同時考慮：
+  - 均線排列
+  - 布林位置與開口
+  - 量價關係
+  - KD 狀態
+  - MACD 狀態
+- 目標是讓維護者之後能直接擴充規則，而不是推倒重寫整個 API 結構
+
+#### 驗證方式
+
+- 後端測試：`.venv/bin/python -m pytest -q tests/test_dashboard_api.py`
+- 前端建置：`cd dashboard/web && npm run build`
+- 介面驗證重點：
+  - 同 origin `/api` 是否正常代理
+  - 從 NAS IP 存取 `http://<NAS_IP>:9080` 是否仍可載入資料
+  - 自動報價模式只更新 quote；手動更新會重抓 quote / chart / analysis
+
+#### 後續維護注意事項
+
+- 若圖表 pane 再變多，優先維持單一資料契約，避免不同元件各自重算不同版本的指標。
+- 若未來要做 60 分 K / 週 K，小心不要把日線邏輯硬套到分鐘資料；先明確分離 timeframe 與資料來源。
+- 若同區網仍出現 `Failed to fetch`，先檢查 web 容器是否仍有 `/api` reverse proxy，而不是先懷疑 CORS。
+
 ### Phase 0：環境建置
 **日期**：2026-05-19  
 **主要產出**：

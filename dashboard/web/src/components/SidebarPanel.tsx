@@ -57,6 +57,7 @@ export function SidebarPanel({ quote, chart, analysis, mode, lastRefreshLabel }:
           <div><dt>趨勢方向</dt><dd>{summary?.trend_direction ?? "--"}</dd></div>
           <div><dt>均線排列</dt><dd>{summary?.ma_alignment ?? "--"}</dd></div>
           <div><dt>布林位置</dt><dd>{summary?.bb_position ?? "--"}</dd></div>
+          <div><dt>布林開口</dt><dd>{summary?.bb_channel ?? "--"}</dd></div>
           <div><dt>量價關係</dt><dd>{summary?.vol_price_relation ?? "--"}</dd></div>
         </dl>
         <p className="muted-copy">{summary?.composite_evaluation ?? "分析資料載入中"}</p>
@@ -82,15 +83,14 @@ export function SidebarPanel({ quote, chart, analysis, mode, lastRefreshLabel }:
         <div className="panel-header">
           <div>
             <p className="eyebrow">Phase 2</p>
-            <h2>指標總表</h2>
+            <h2>目前判讀</h2>
           </div>
         </div>
         <ul className="roadmap-list">
-          {indicators.map((item) => (
-            <li key={item.name}>
-              {item.name + " / " + item.direction + " / " + item.signal + " / " + item.values}
-            </li>
-          ))}
+          <li>{indicators[0] ? indicators[0].name + "：" + indicators[0].signal : "KD 計算中"}</li>
+          <li>{indicators[1] ? indicators[1].name + "：" + indicators[1].signal : "MACD 計算中"}</li>
+          <li>{indicators[3] ? indicators[3].name + "：" + indicators[3].signal : "布林通道計算中"}</li>
+          <li>{"刷新模式：" + (mode === "auto" ? "自動輪詢 10 秒報價" : "由使用者手動更新全資料")}</li>
         </ul>
       </section>
     </aside>

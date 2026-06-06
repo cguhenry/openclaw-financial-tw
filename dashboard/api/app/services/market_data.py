@@ -140,6 +140,63 @@ def _ema(series: pd.Series, span: int) -> pd.Series:
     return series.ewm(span=span, adjust=False).mean()
 
 
+def _describe_kd_signal(k_value: float, d_value: float) -> str:
+    if k_value >= 80 and d_value >= 80:
+        return "高檔鈍化"
+    if k_value <= 20 and d_value <= 20:
+        return "低檔鈍化"
+    if k_value > d_value:
+        return "黃金交叉後偏多"
+    if k_value < d_value:
+        return "死亡交叉後偏弱"
+    return "中性"
+
+
+def _describe_macd_signal(dif_value: float, signal_value: float, hist_value: float) -> str:
+    if dif_value > signal_value and hist_value > 0:
+        return "多頭動能擴張"
+    if dif_value > signal_value and hist_value <= 0:
+        return "翻多初期"
+    if dif_value < signal_value and hist_value < 0:
+        return "空頭動能擴張"
+    if dif_value < signal_value and hist_value >= 0:
+        return "轉弱初期"
+    return "中性"
+
+
+def _compose_evaluation(
+    *,
+    trend_direction: str,
+    ma_signal: str,
+    bb_position: str,
+    bb_channel: str,
+    vol_price: str,
+    kd_signal: str,
+    macd_signal: str,
+) -> str:
+    if trend_direction == "多頭趨勢":
+        if "偏熱" in bb_position and "量縮" in vol_price:
+            return "股價仍在多方慣性內，但已貼近布林上緣且量能沒有同步放大，較像高檔續攻後的換手段，短線不適合追價，宜等回檔確認承接。"
+        if "量增上漲" in vol_price and "開口擴大" in bb_channel and "多頭" in macd_signal:
+            return "均線、量能與 MACD 同步支持多方，屬於趨勢延伸型走法；若後續拉回仍守住 MA20，偏向強勢整理而非轉弱。"
+        return "價格結構仍由多方掌控，但短線節奏要看量能是否續強；若 KD 維持高檔而 MACD 沒有翻空，偏向多頭整理後再選方向。"
+
+    if trend_direction == "空頭趨勢":
+        if "偏弱" in bb_position and "空頭" in macd_signal:
+            return "股價位在空方主導區，布林位置與 MACD 都偏弱，反彈較可能先視為跌深修正；未重新站回 MA20 前，不宜把短彈當成趨勢反轉。"
+        if "量縮下跌" in vol_price and "低檔" in kd_signal:
+            return "空方趨勢尚未解除，但賣壓有暫時收斂跡象，較像弱勢跌深整理；若後續量縮止穩，才有機會進入技術性反彈。"
+        return "結構仍偏空，關鍵在支撐區是否失守；若量能重新放大且 MACD 持續擴大負值，弱勢段可能延續。"
+
+    if "低檔" in kd_signal and "翻多" in macd_signal:
+        return "目前偏向區間整理中的低位回穩，KD 與 MACD 有初步修復跡象，但還需要量能與 MA20 站穩來確認不是單日反彈。"
+    if "高檔" in kd_signal and "轉弱" in macd_signal:
+        return "價格暫時沒有脫離整理帶，但高檔指標已出現鈍化轉弱，短線容易先走震盪洗盤；若跌回回檔區下緣，結構會明顯轉差。"
+    if "均線糾結" in ma_signal and "收斂" in bb_channel:
+        return "均線糾結且布林收斂，典型等待突破的壓縮區。操作重點不在猜方向，而在觀察壓力區與支撐區哪一側先被有效突破。"
+    return "技術面仍在整理區間內，現階段訊號彼此沒有完全共振。較穩健的做法是等待量價與 MACD/KD 同步表態後再決定是否進場。"
+
+
 def fetch_analysis_payload(stock_id: str, force_refresh: bool = False) -> dict[str, Any]:
     cache_key = f"analysis:{stock_id}"
     if not force_refresh:
@@ -230,14 +287,17 @@ def fetch_analysis_payload(stock_id: str, force_refresh: bool = False) -> dict[s
     else:
         trend_direction = "橫盤整理"
 
-    if trend_direction == "多頭趨勢" and bb_pct > 0.85 and vol_shrink:
-        evaluation = "高檔震盪，追價風險升高"
-    elif trend_direction == "多頭趨勢" and not vol_shrink:
-        evaluation = "多頭延續，短線偏強"
-    elif trend_direction == "空頭趨勢" and bb_pct < 0.2:
-        evaluation = "弱勢區間，宜保守觀察"
-    else:
-        evaluation = "技術面中性，等待更明確方向"
+    kd_signal = _describe_kd_signal(latest_k, latest_d)
+    macd_signal = _describe_macd_signal(latest_dif, latest_signal, latest_hist)
+    evaluation = _compose_evaluation(
+        trend_direction=trend_direction,
+        ma_signal=ma_signal,
+        bb_position=bb_position,
+        bb_channel=bb_channel,
+        vol_price=vol_price,
+        kd_signal=kd_signal,
+        macd_signal=macd_signal,
+    )
 
     recent_high = float(high.tail(20).max())
     recent_low = float(low.tail(60).min())
@@ -255,13 +315,13 @@ def fetch_analysis_payload(stock_id: str, force_refresh: bool = False) -> dict[s
             "name": "KD",
             "values": f"K {latest_k:.1f} / D {latest_d:.1f}",
             "direction": "↑" if latest_k > latest_d else "↓",
-            "signal": "高檔鈍化" if latest_k > 80 else "低檔鈍化" if latest_k < 20 else "中性",
+            "signal": kd_signal,
         },
         {
             "name": "MACD",
             "values": f"DIF {latest_dif:.2f} / DEA {latest_signal:.2f}",
             "direction": "↑" if latest_dif > latest_signal else "↓",
-            "signal": "多頭延續" if latest_hist > 0 else "空頭偏弱",
+            "signal": macd_signal,
         },
         {
             "name": "均線排列",

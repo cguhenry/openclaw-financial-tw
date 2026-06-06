@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { CandlesPanel } from "./components/CandlesPanel";
+import { IndicatorTable } from "./components/IndicatorTable";
 import { SidebarPanel } from "./components/SidebarPanel";
 import { StockHeader } from "./components/StockHeader";
 import { fetchAnalysis, fetchChart, fetchQuote, refreshStock, type AnalysisResponse, type ChartResponse, type QuoteResponse } from "./lib/api";
@@ -124,12 +125,12 @@ export default function App() {
         <StockHeader data={quote} />
 
         <section className="main-grid">
-          <CandlesPanel data={chart} />
+          <CandlesPanel data={chart} analysis={analysis} />
           <SidebarPanel quote={quote} chart={chart} analysis={analysis} mode={mode} lastRefreshLabel={lastRefreshLabel} />
         </section>
 
         <section className="bottom-grid">
-          <div className="panel mini-panel"><p className="eyebrow">Reserved</p><h3>60 分 K</h3><p>Phase 3 驗證分鐘資料來源後接入。</p></div>
+          <IndicatorTable analysis={analysis} />
           <div className="panel mini-panel"><p className="eyebrow">Reserved</p><h3>日 K / 週 K 縮圖</h3><p>先保留版位，避免 Phase 1 把多週期資料做半套。</p></div>
           <div className="panel mini-panel"><p className="eyebrow">Reserved</p><h3>型態分析 / AI</h3><p>延後到資料與指標穩定後再開。</p></div>
         </section>
