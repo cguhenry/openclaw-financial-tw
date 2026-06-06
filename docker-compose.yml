@@ -33,8 +33,16 @@ services:
       DASHBOARD_API_HOST: 0.0.0.0
       DASHBOARD_API_PORT: 9180
       DASHBOARD_CORS_ORIGINS: http://127.0.0.1:9080,http://localhost:9080,http://127.0.0.1:5173,http://localhost:5173
+      DASHBOARD_ALERT_PREVIEW_TTL_SECONDS: 900
+      APP_DATA_DIR: /app/data
+      APP_CACHE_DIR: /app/data/cache
+      APP_LOG_DIR: /app/run
+      DASHBOARD_ALERT_POLL_INTERVAL_SECONDS: 30
     ports:
       - "9180:9180"
+    volumes:
+      - ./data:/app/data
+      - ./run:/app/run
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9180/api/health', timeout=10).read()"]
@@ -55,3 +63,9 @@ services:
       stock-dashboard-api:
         condition: service_started
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 20s

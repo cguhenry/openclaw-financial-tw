@@ -9,6 +9,7 @@
 - **台股晨間簡報**：每日 08:30 自動發送到 Discord / LINE（三大法人、大盤指數、美股夜盤、重大訊息、法說會行程）
 - **27+ 個 MCP Tools**：涵蓋技術面（股價/K線）、基本面（財報三表/月營收）、籌碼面（三大法人/融資融券）、總經（CPI/GDP/利率/匯率）
 - **股票分析儀表板（Phase 1）**：深色高密度單頁 dashboard，已可查看股票標頭、即時/手動更新、日 K 與成交量
+- **股票分析儀表板（Phase 4/5）**：已補上型態分析、統計預測、AI 建議價位、站內提醒中心、alert outbox 與跨平台部署文件
 - **並行資料抓取**：晨報 10 個資料源平行抓取，延遲最小化
 - **錯誤隔離**：任一資料源失敗不影響整體輸出，失敗來源明確提示
 - **跨平台支援**：Mode A（本機直接跑）或 Mode B（Docker 隔離）
@@ -227,6 +228,9 @@ bash scripts/send_tw_morning_briefing.sh --send
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | **英文版**部署說明 |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 開發歷程、維護手冊、技術決策記錄 |
 | [docs/USAGE.md](docs/USAGE.md) | 日常使用指南 |
+| [docs/deploy-local-dev.md](docs/deploy-local-dev.md) | Dashboard 本機開發啟動方式 |
+| [docs/deploy-docker-host.md](docs/deploy-docker-host.md) | 一般 Docker 主機 / VPS 部署 |
+| [docs/deploy-nas.md](docs/deploy-nas.md) | Synology NAS 部署與 override 範例 |
 | [openclaw-financial-tw-plan.md](openclaw-financial-tw-plan.md) | 專案規劃書（包含 Phase 0–6 藍圖）|
 
 ---
@@ -237,6 +241,9 @@ bash scripts/send_tw_morning_briefing.sh --send
 
 - Phase 0：dashboard API/BFF 骨架、資料契約、跨平台 docker profile 規劃
 - Phase 1：主畫面骨架、股票標頭、即時自動報價 / 手動更新切換、日 K + 成交量
+- Phase 4：W 底 / M 頭、統計勝率、方向預測、AI 建議價位
+- Phase 5：提醒中心、alert 輪詢 / cooldown / dedupe、Docker host / local dev / NAS 文件與 override
+- Phase 5.5：alert preview 改成首屏重用 `analysis/signals` + 後端專用 TTL cache，降低首次載入延遲
 
 尚未完成：
 

@@ -233,6 +233,24 @@ FinMind 提供的欄位更完整（包含還原股價、分點、融資券等）
 - quote / chart 由 dashboard API 包住既有 `mcp/finmind_server.py`，避免前端直接碰原始資料源
 - 加入簡單 TTL cache，降低同一股票反覆查詢時的延遲與 API 壓力
 
+#### Phase 5.5：提醒預覽延遲優化與收尾
+
+**問題**
+
+- `AlertCenter` 首次載入時，原本會額外呼叫一次 `/ai-alert-preview`
+- 若 `signals` 尚未有快取，這條路徑會再觸發一次分析/預測鏈，導致提醒中心首次開啟偏慢
+
+**修正**
+
+- 前端 `AlertCenter` 改成優先重用主頁已取得的 `analysis` 與 `signals`
+- 後端 `AlertService.build_ai_preview()` 新增獨立 TTL cache：`ai-alert-preview:{stock_id}`
+- 保留 `/api/stocks/{stock_id}/ai-alert-preview`，但降為 fallback 路徑，而非首屏必要依賴
+
+**效果**
+
+- 使用者首次打開 dashboard 時，AI 建議價位可直接從現有 payload 組裝，不必再等第二條重路徑
+- API 仍保留可獨立呼叫的 preview 端點，方便之後拆頁、背景預抓或第三方整合
+
 #### Phase 2：技術分析第一輪落地
 
 **主要產出**

@@ -68,3 +68,45 @@ def test_phase4_endpoints_return_payloads():
     train_payload = train.json()
     assert "trained_at" in train_payload
     assert "metrics" in train_payload
+
+
+def test_alert_center_endpoints_return_payloads():
+    preview = client.get("/api/stocks/2330/ai-alert-preview")
+    assert preview.status_code == 200
+    preview_payload = preview.json()
+    assert preview_payload["suggestions"]
+
+    create = client.post(
+        "/api/stocks/2330/alerts",
+        json={
+            "side": "buy",
+            "rule_type": "price_at_or_below",
+            "target_price": 900,
+            "cooldown_minutes": 60,
+            "source": "user",
+            "enabled": True,
+            "delivery_channels": [],
+            "delivery_targets": [],
+            "note": "pytest alert"
+        },
+    )
+    assert create.status_code == 200
+    created_alert = create.json()["alert"]
+    assert created_alert["id"]
+
+    alerts = client.get("/api/stocks/2330/alerts")
+    assert alerts.status_code == 200
+    alerts_payload = alerts.json()
+    assert "alerts" in alerts_payload
+
+    test_delivery = client.post(
+        "/api/stocks/2330/alerts/test",
+        json={"alert_id": created_alert["id"], "force_delivery": False},
+    )
+    assert test_delivery.status_code == 200
+    test_payload = test_delivery.json()
+    assert "events" in test_payload
+
+    targets = client.get("/api/stocks/notification-targets/import")
+    assert targets.status_code == 200
+    assert "targets" in targets.json()

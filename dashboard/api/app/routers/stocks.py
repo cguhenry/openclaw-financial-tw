@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 
+from ..schemas.alerts import AlertTestRequest, AlertUpsertRequest
+from ..services.alerts import alert_service
 from ..services.market_data import (
     fetch_analysis_payload,
     fetch_chart_payload,
@@ -124,5 +126,63 @@ def refresh_stock(stock_id: str, limit: int = Query(default=120, ge=30, le=240))
 def train_models(stock_id: str) -> dict:
     try:
         return retrain_prediction_models(_validate_stock_id(stock_id))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/{stock_id}/alerts")
+def get_alerts(stock_id: str) -> dict:
+    try:
+        return alert_service.list_alerts(_validate_stock_id(stock_id))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/{stock_id}/alerts")
+def create_alert(stock_id: str, payload: AlertUpsertRequest) -> dict:
+    try:
+        return alert_service.create_alert(_validate_stock_id(stock_id), payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.patch("/{stock_id}/alerts/{alert_id}")
+def patch_alert(stock_id: str, alert_id: str, payload: AlertUpsertRequest) -> dict:
+    try:
+        return alert_service.patch_alert(_validate_stock_id(stock_id), alert_id, payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/{stock_id}/alerts/test")
+def test_alert(stock_id: str, payload: AlertTestRequest) -> dict:
+    try:
+        return alert_service.test_alert(
+            _validate_stock_id(stock_id),
+            payload.alert_id,
+            force_delivery=payload.force_delivery,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/{stock_id}/ai-alert-preview")
+def get_ai_alert_preview(stock_id: str) -> dict:
+    try:
+        return alert_service.build_ai_preview(_validate_stock_id(stock_id))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/notification-targets/import")
+def import_notification_targets() -> dict:
+    try:
+        return alert_service.import_notification_targets()
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=str(exc)) from exc

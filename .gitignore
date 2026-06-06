@@ -28,6 +28,8 @@ dashboard/web/vite.config.d.ts
 
 # Data cache
 data/cache/
+data/dashboard-alerts.json
+data/dashboard-notification-outbox.jsonl
 dashboard/api/models/
 
 # Synology NAS metadata

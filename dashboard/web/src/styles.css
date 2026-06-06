@@ -50,6 +50,15 @@ button, input { font: inherit; }
   margin-bottom: 16px; padding: 14px 16px; border: 1px solid rgba(239, 83, 80, 0.4);
   background: rgba(239, 83, 80, 0.1); color: #ffb4ae; border-radius: 16px;
 }
+.error-banner.compact { margin-bottom: 12px; padding: 10px 12px; border-radius: 12px; }
+.toast-banner {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 209, 102, 0.4);
+  background: rgba(255, 209, 102, 0.1);
+  color: var(--text-primary);
+}
 .header-card, .panel {
   position: relative; overflow: hidden; border: 1px solid var(--border);
   background: linear-gradient(180deg, rgba(24, 28, 39, 0.96), rgba(16, 19, 28, 0.96));
@@ -96,6 +105,69 @@ button, input { font: inherit; }
 .bottom-grid { margin-top: 18px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .bottom-grid-secondary { align-items: stretch; }
 .mini-panel p { margin-bottom: 0; line-height: 1.6; }
+.alert-center-panel { grid-column: span 2; }
+.alert-center-grid,
+.alert-lists {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.alert-lists { margin-top: 16px; }
+.alert-column h3 { margin-top: 0; margin-bottom: 12px; }
+.alert-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.alert-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.alert-form input,
+.alert-form select,
+.alert-form textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: rgba(10, 13, 20, 0.75);
+  color: var(--text-primary);
+  padding: 10px 12px;
+  border-radius: 12px;
+}
+.span-2 { grid-column: span 2; }
+.alert-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.pill-row,
+.inline-actions,
+.suggestion-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.pill-row span {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.suggestion-stack { flex-direction: column; }
+.alert-card {
+  border-radius: 16px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.035);
+  display: grid;
+  gap: 10px;
+}
+.alert-card p { margin: 0; color: var(--text-secondary); line-height: 1.5; }
+.badge-hot { color: #ffb4ae !important; border-color: rgba(239, 83, 80, 0.4) !important; }
+.badge-calm { color: #ffe08a !important; border-color: rgba(255, 209, 102, 0.4) !important; }
+.badge-neutral { color: var(--text-secondary) !important; }
+.event-card strong { color: var(--text-accent); }
 .table-panel { min-height: 100%; }
 .indicator-table-wrap { overflow-x: auto; }
 .indicator-table {
@@ -261,6 +333,11 @@ button, input { font: inherit; }
   .price-delta { justify-content: flex-start; }
   .multi-period-grid { grid-template-columns: 1fr; }
   .multi-period-panel { grid-column: auto; }
+  .alert-center-panel,
+  .span-2 { grid-column: auto; }
+  .alert-center-grid,
+  .alert-lists,
+  .alert-form,
   .pattern-grid,
   .prediction-layout { grid-template-columns: 1fr; }
 }

@@ -1,0 +1,11 @@
+services:
+  stock-dashboard-api:
+    volumes:
+      - /volume1/docker/openclaw-financial-tw/data:/app/data
+      - /volume1/docker/openclaw-financial-tw/run:/app/run
+    environment:
+      DASHBOARD_CORS_ORIGINS: http://127.0.0.1:9080,http://localhost:9080,http://YOUR_NAS_IP:9080
+
+  stock-dashboard-web:
+    ports:
+      - "9080:8080"
