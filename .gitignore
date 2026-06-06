@@ -21,6 +21,10 @@ run/
 skills.zip
 dist/
 build/
+node_modules/
+*.tsbuildinfo
+dashboard/web/vite.config.js
+dashboard/web/vite.config.d.ts
 
 # Data cache
 data/cache/

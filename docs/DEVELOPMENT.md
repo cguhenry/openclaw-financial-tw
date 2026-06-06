@@ -258,6 +258,210 @@ FinMind 提供的欄位更完整（包含還原股價、分點、融資券等）
 ---
 
 ### Phase 5：Agent 整合 + 晨報自動化
+
+## 六、2026-06-06：股票分析儀表板（修正版計劃）Phase 0 / Phase 1 與 Phase 2 起手式
+
+**日期**：2026-06-06  
+**背景**：Henry 提出要在 `openclaw-financial-tw` 的基礎上，做一個接近上傳截圖風格的台股分析儀表板，同時要求：
+- 不預設綁死 NAS，GitHub 公開後仍要讓非 NAS 使用者可跑
+- Dashboard 支援「即時自動報價」與「使用者手動更新」雙模式
+- 雲端託管假設（Redis Cloud / Vercel / Railway）要改成 NAS / Docker-first 的自架構思路
+
+### 6.1 為何沒有另開新 repo
+
+本次實作決策是**不另開新 repo**，而是在既有 repo 內新增 dashboard 子應用，理由如下：
+
+1. 現有 repo 已有 FinMind / Fugle / TWSE / MOPS 的可用資料層
+2. 既有 Docker、`.env`、MCP、晨報腳本與驗證腳手架可直接復用
+3. Dashboard 若拆出去，反而會把資料取得與部署維護分裂成兩套
+
+實際落點：
+
+```
+dashboard/
+  api/
+  web/
+```
+
+### 6.2 Phase 0 交付內容
+
+Phase 0 不是畫面，而是把**可運行骨架與資料契約**先確立：
+
+- 新增 `dashboard/api`：
+  - `app/main.py`
+  - `routers/health.py`
+  - `routers/stocks.py`
+  - `services/market_data.py`
+  - `cache.py`
+  - `config.py`
+- 新增 `dashboard/web`：
+  - React + Vite + TypeScript 基礎骨架
+  - 深色高密度 dashboard layout
+- 新增跨平台部署 wiring：
+  - `docker-compose.yml` 新增 `stock-dashboard-api` / `stock-dashboard-web`
+  - `.env.example` 新增 dashboard 相關設定
+  - README 新增本機開發與 Docker profile 啟動方式
+- 新增測試：
+  - `tests/test_dashboard_api.py`
+
+#### Phase 0 核心技術決策
+
+1. **Dashboard 不直接打 MCP schema**
+   - 新建 dashboard API/BFF，讓前端只拿 UI 需要的 payload
+2. **Phase 1 快取先用 process-local TTL cache**
+   - 先不用 Redis / Valkey，降低複雜度
+3. **Docker-first，多部署 profile**
+   - NAS 是優先場景，但不是唯一場景
+
+### 6.3 Phase 1 交付內容
+
+Phase 1 已交付一個**可運行 MVP**：
+
+- 股票代號輸入
+- 股票標頭（名稱 / 代號 / 報價 / 漲跌 / 買賣價 / 量）
+- 日 K 主圖
+- 成交量子圖
+- 更新模式切換：
+  - 即時自動報價
+  - 使用者手動更新
+- 右欄保留後續分析區塊位置
+
+#### Phase 1 API 端點
+
+- `GET /api/health`
+- `GET /api/stocks/{stock_id}/quote`
+- `GET /api/stocks/{stock_id}/chart`
+- `POST /api/stocks/{stock_id}/refresh`
+
+#### Phase 1 與原始規劃的取捨
+
+刻意**沒有**在這一步就做：
+
+- KD / MACD 圖表 panes
+- 主力 / 法人圖表
+- AI 勝率或明日預測
+- 60 分 K
+
+原因是先把：
+
+1. 基礎資料流
+2. 佈局骨架
+3. 更新模式
+4. Docker / NAS 可部署性
+
+先做穩，之後再往上疊分析層。
+
+### 6.4 遇到的實際部署問題：`Failed to fetch`
+
+Henry 在 NAS 上以 `http://192.168.3.33:9080` 開啟 dashboard，輸入 `2330` 後看到 `Failed to fetch`。
+
+#### 問題根因
+
+最初前端預設會直接以：
+
+- `http://<目前主機>:9180`
+
+去打 API。這在同區網瀏覽器情境下會遇到兩類風險：
+
+1. CORS 設定不包含實際使用的來源
+2. Browser 直接跨 port 打 API，部署環境容易受網路、反向代理、瀏覽器限制影響
+
+#### 修正方案
+
+改成**同 origin 代理優先**：
+
+- `dashboard/web/nginx.conf` 新增：
+  - `location /api/ { proxy_pass http://stock-dashboard-api:9180; }`
+- `dashboard/web/src/lib/api.ts`
+  - 預設 API base 改為空字串 `""`
+  - browser 直接打同 origin `/api/...`
+- `dashboard/web/vite.config.ts`
+  - 本機開發用 Vite proxy 把 `/api` 轉給 `127.0.0.1:9180`
+
+這個修正比單純補 CORS 更穩，因為 production browser 不再需要直接跨 port 存取 API。
+
+### 6.5 NAS 部署文件補充
+
+另外新增：
+
+- `docs/deploy-nas.md`
+
+內容包含：
+
+- Synology NAS 上的容器啟動步驟
+- `.env` 需要填哪些欄位
+- `9080 / 9180 / 9123` 的 port 對應
+- `docker compose` 常用操作
+- 同區網存取時 CORS 該怎麼填
+- `9080` 如果撞 port，如何改成 `9090`
+
+### 6.6 Port 調整：Dashboard Web 由 8080 改成 9080
+
+因 Henry 的 NAS 上已有其他容器占用 `8080`，因此把 dashboard web 對外 port 改成：
+
+- `9080:8080`
+
+同步修改：
+
+- `docker-compose.yml`
+- `.env.example`
+- `README.md`
+- `docs/deploy-nas.md`
+
+### 6.7 Phase 2 起手式（本次已開始，不是只規劃）
+
+雖然使用者要求「先記錄 Phase 0 / 1，再 push，接著開始 Phase 2」，本次已直接把 Phase 2 的第一批內容落地，避免 repo 只停在畫面骨架：
+
+- 新增 `GET /api/stocks/{stock_id}/analysis`
+- 在 `services/market_data.py` 內加入：
+  - 均線（MA5 / MA20 / MA60）
+  - 布林通道
+  - KD（rolling stochastic 版本）
+  - MACD（EMA 版本）
+  - 規則式技術總覽
+  - 關鍵價位（壓力 / 回檔 / 支撐）
+  - 指標總表資料
+- 前端右欄改為顯示真實 analysis payload：
+  - 技術分析總覽
+  - 關鍵價位
+  - 指標總表
+
+#### 尚未完成的 Phase 2 項目
+
+目前還沒做完：
+
+- KD / MACD 視覺化子圖
+- 真正的指標表格元件
+- 關鍵價位圖上標注
+- 更完整的 technical summary 文案與規則引擎整理
+
+但 Phase 2 已經不是空轉，後續維護者可以從 `analysis` endpoint 與右欄 UI 接續擴充。
+
+### 6.8 驗證方式
+
+本輪已做的驗證：
+
+- `.venv/bin/python -m pytest -q tests/test_dashboard_api.py`
+- `GET /api/health`
+- `GET /api/stocks/2330/quote`
+- `GET /api/stocks/2330/chart?timeframe=daily&limit=60`
+- `GET /api/stocks/2330/analysis`
+- `dashboard/web` 的 `npm run build`
+
+#### 限制
+
+在目前 agent 執行環境中，**沒有 `docker` binary**，因此無法直接做：
+
+- `docker compose config`
+- 實際容器啟停驗證
+
+因此 Docker 端的有效性是透過：
+
+1. YAML 結構檢查
+2. 本機 API / 前端 build 成功
+3. NAS 實機回報與部署文件補充
+
+來交叉確認。
 **日期**：2026-05-19（初版），2026-05-20（cron 修復）  
 **初版產出**：
 - `get_tw_market_briefing`：一口氣抓完晨報所需全部資料

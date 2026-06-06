@@ -8,6 +8,7 @@
 
 - **台股晨間簡報**：每日 08:30 自動發送到 Discord / LINE（三大法人、大盤指數、美股夜盤、重大訊息、法說會行程）
 - **27+ 個 MCP Tools**：涵蓋技術面（股價/K線）、基本面（財報三表/月營收）、籌碼面（三大法人/融資融券）、總經（CPI/GDP/利率/匯率）
+- **股票分析儀表板（Phase 1）**：深色高密度單頁 dashboard，已可查看股票標頭、即時/手動更新、日 K 與成交量
 - **並行資料抓取**：晨報 10 個資料源平行抓取，延遲最小化
 - **錯誤隔離**：任一資料源失敗不影響整體輸出，失敗來源明確提示
 - **跨平台支援**：Mode A（本機直接跑）或 Mode B（Docker 隔離）
@@ -73,6 +74,39 @@ bash scripts/run_finmind_sse.sh
 # 6. 驗證
 .venv/bin/python scripts/verify_mcp_sse.py
 ```
+
+### Dashboard（Phase 0 / Phase 1）
+
+#### 本機開發
+
+```bash
+# API
+.venv/bin/pip install -r dashboard/api/requirements.txt
+.venv/bin/python -m uvicorn dashboard.api.app.main:app --host 127.0.0.1 --port 9180 --reload
+
+# Web（另一個 shell）
+cd dashboard/web
+npm install --include=dev
+npm run dev
+```
+
+打開：
+
+- Web: `http://127.0.0.1:5173`
+- API health: `http://127.0.0.1:9180/api/health`
+- 開發模式下 Vite 已經把 `/api` 代理到 `127.0.0.1:9180`
+
+#### Docker Compose
+
+```bash
+docker compose --profile dashboard up -d --build
+```
+
+打開：
+
+- Dashboard Web: `http://127.0.0.1:9080`
+- Dashboard API: `http://127.0.0.1:9180/api/health`
+- Docker 模式下 browser 會透過 web 容器的同 origin `/api` 代理打 API
 
 ### 安裝方式二：Mode B（Docker）
 
@@ -194,6 +228,23 @@ bash scripts/send_tw_morning_briefing.sh --send
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 開發歷程、維護手冊、技術決策記錄 |
 | [docs/USAGE.md](docs/USAGE.md) | 日常使用指南 |
 | [openclaw-financial-tw-plan.md](openclaw-financial-tw-plan.md) | 專案規劃書（包含 Phase 0–6 藍圖）|
+
+---
+
+## 🖥 Dashboard 狀態
+
+目前已完成：
+
+- Phase 0：dashboard API/BFF 骨架、資料契約、跨平台 docker profile 規劃
+- Phase 1：主畫面骨架、股票標頭、即時自動報價 / 手動更新切換、日 K + 成交量
+
+尚未完成：
+
+- KD / MACD / 關鍵價位 / 技術分析總覽
+- 三大法人 / 主力燈號 / 多週期圖
+- 型態分析與統計預測
+
+也就是說，這版已經是**可運行 MVP**，但還不是完整最終版。
 
 ---
 

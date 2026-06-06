@@ -20,3 +20,38 @@ services:
       timeout: 15s
       retries: 3
       start_period: 20s
+
+  stock-dashboard-api:
+    profiles: ["dashboard"]
+    build:
+      context: .
+      dockerfile: dashboard/api/Dockerfile
+    container_name: stock-dashboard-api
+    env_file:
+      - .env
+    environment:
+      DASHBOARD_API_HOST: 0.0.0.0
+      DASHBOARD_API_PORT: 9180
+      DASHBOARD_CORS_ORIGINS: http://127.0.0.1:9080,http://localhost:9080,http://127.0.0.1:5173,http://localhost:5173
+    ports:
+      - "9180:9180"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9180/api/health', timeout=10).read()"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 20s
+
+  stock-dashboard-web:
+    profiles: ["dashboard"]
+    build:
+      context: .
+      dockerfile: dashboard/web/Dockerfile
+    container_name: stock-dashboard-web
+    ports:
+      - "9080:8080"
+    depends_on:
+      stock-dashboard-api:
+        condition: service_started
+    restart: unless-stopped
