@@ -19,6 +19,8 @@ function describeArc(value: number): string {
 export function PredictionPanel({ data }: Props) {
   const winRate = data?.win_rate.value ?? 0;
   const prediction = data?.direction_prediction;
+  const trainedAt = prediction?.trained_at ?? data?.win_rate.trained_at;
+  const metrics = prediction?.metrics ?? data?.win_rate.metrics;
 
   return (
     <section className="panel prediction-panel">
@@ -46,6 +48,11 @@ export function PredictionPanel({ data }: Props) {
         </div>
       </div>
       <p className="muted-copy">{prediction?.note ?? data?.win_rate.note ?? "AI 預測骨架載入中"}</p>
+      <p className="muted-copy">模型基礎：{prediction?.basis ?? data?.win_rate.basis ?? "--"}</p>
+      <p className="muted-copy">訓練時間：{trainedAt ?? "--"}</p>
+      <p className="muted-copy">
+        驗證指標：勝率準確率 {metrics ? (metrics.win_accuracy * 100).toFixed(1) + "%" : "--"} / 方向準確率 {metrics ? (metrics.direction_accuracy * 100).toFixed(1) + "%" : "--"}
+      </p>
     </section>
   );
 }

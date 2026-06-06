@@ -145,6 +145,13 @@ export type SignalResponse = {
     label: string;
     basis: string;
     note: string;
+    metrics?: {
+      win_accuracy: number;
+      direction_accuracy: number;
+      train_rows: number;
+      test_rows: number;
+    };
+    trained_at?: string;
   };
   direction_prediction: {
     prediction: string;
@@ -155,6 +162,13 @@ export type SignalResponse = {
     confidence: number;
     basis: string;
     note: string;
+    metrics?: {
+      win_accuracy: number;
+      direction_accuracy: number;
+      train_rows: number;
+      test_rows: number;
+    };
+    trained_at?: string;
   };
   meta: {
     source: string;
@@ -319,6 +333,20 @@ export function fetchPatterns(stockId: string, forceRefresh = false): Promise<Pa
 export function fetchSignals(stockId: string, forceRefresh = false): Promise<SignalResponse> {
   const suffix = forceRefresh ? "?force_refresh=true" : "";
   return request<SignalResponse>("/api/stocks/" + stockId + "/signals" + suffix);
+}
+
+export function trainModels(stockId: string): Promise<{
+  stock_id: string;
+  trained_at: string;
+  metrics: {
+    win_accuracy: number;
+    direction_accuracy: number;
+    train_rows: number;
+    test_rows: number;
+  };
+  model_path: string;
+}> {
+  return request("/api/stocks/" + stockId + "/train-models", { method: "POST" });
 }
 
 export function refreshStock(stockId: string): Promise<{

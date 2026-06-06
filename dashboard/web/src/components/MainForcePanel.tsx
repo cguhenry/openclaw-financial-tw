@@ -49,6 +49,7 @@ export function MainForcePanel({ data }: Props) {
         <div><dt>累計 proxy 淨額</dt><dd>{formatSigned(latest?.cumulative_net)}</dd></div>
       </dl>
       <p className="muted-copy">{data?.note ?? "主力 proxy 說明載入中"}</p>
+      <p className="muted-copy">方法：{data?.method ?? "--"}</p>
     </section>
   );
 }

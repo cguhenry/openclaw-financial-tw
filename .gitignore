@@ -28,6 +28,7 @@ dashboard/web/vite.config.d.ts
 
 # Data cache
 data/cache/
+dashboard/api/models/
 
 # Synology NAS metadata
 @eaDir/

@@ -18,6 +18,7 @@ import {
   fetchPatterns,
   fetchQuote,
   fetchSignals,
+  trainModels,
   refreshStock,
   type AnalysisResponse,
   type ChartResponse,
@@ -144,6 +145,18 @@ export default function App() {
     }
   }
 
+  async function handleTrainModels() {
+    setIsLoading(true);
+    setError(null);
+    try {
+      await trainModels(stockId);
+      await loadInitialPayload(true);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unknown error");
+      setIsLoading(false);
+    }
+  }
+
   return (
     <div className="app-shell">
       <div className="page-backdrop" />
@@ -164,6 +177,9 @@ export default function App() {
             </div>
             <button type="button" className="secondary-button" onClick={handleRefresh} disabled={isLoading}>
               {isLoading ? "更新中..." : "立即更新"}
+            </button>
+            <button type="button" className="secondary-button" onClick={handleTrainModels} disabled={isLoading}>
+              {isLoading ? "重訓中..." : "重訓模型"}
             </button>
           </div>
         </div>
@@ -191,8 +207,8 @@ export default function App() {
 
         <section className="bottom-grid bottom-grid-secondary">
           <SuggestionPanel data={signals} />
-          <div className="panel mini-panel"><p className="eyebrow">Phase 4</p><h3>AI 骨架說明</h3><p>本版勝率與方向預測屬於 rule-based skeleton，重點是先定好 API 契約、UI 位置與可替換邏輯，之後可無痛替換成真模型。</p></div>
-          <div className="panel mini-panel"><p className="eyebrow">Next</p><h3>後續擴充</h3><p>下一步可把分鐘資料、真分點主力模型、以及實際訓練好的分類器接到現有 Phase 4 面板，而不需要重新切版。</p></div>
+          <div className="panel mini-panel"><p className="eyebrow">Phase 4.5 / 5</p><h3>模型重訓</h3><p>目前支援透過工具列的「重訓模型」按鈕或後端腳本離線重訓，模型檔會寫入 dashboard API 的 models 目錄。</p></div>
+          <div className="panel mini-panel"><p className="eyebrow">Next</p><h3>後續擴充</h3><p>下一步仍可把更多股票批次重訓、接入更完整 premium 分點欄位，或把日線模型改成全市場通用模型。</p></div>
         </section>
       </main>
     </div>

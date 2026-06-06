@@ -350,6 +350,53 @@ FinMind 提供的欄位更完整（包含還原股價、分點、融資券等）
   - `/patterns` 是否回傳 `w_bottom` / `m_top`
   - `/signals` 是否回傳 `trading_suggestion` / `win_rate` / `direction_prediction`
 
+#### Phase 4.5 / 5：60 分 K / 真分點路徑 / 可重訓模型
+
+**主要產出**
+
+- 多週期縮圖的短週期卡，已從「近 20 根日 K 替代視角」改成 **Fugle 真 60 分鐘 K**
+- 主力進出 API 新增 **premium 分點路徑**
+- 預測 API 從 rule-based skeleton 升級為 **可離線重訓的隨機森林模型**
+- 新增後端重訓入口：`POST /api/stocks/{stock_id}/train-models`
+- 新增腳本：`scripts/train_dashboard_models.py`
+
+**重要決策**
+
+- **60 分 K 採用 Fugle intraday candles**
+  - 實測可用 endpoint：`/stock/intraday/candles/{symbol}?timeframe=60`
+  - 因此多週期卡現在是真分鐘資料，不再是假日線替代品。
+
+- **真分點模型採「能用就啟用，不能用就明確 fallback」**
+  - FinMind 文件確認 `TaiwanStockTradingDailyReport` 為 sponsor 等級資料，而且請求模式是 `date=單日`。
+  - 免費等級會直接回 400 與升級提示，這不是程式 bug。
+  - 目前主力面板會：
+    - 若 premium 分點資料可用：走 `broker_top20` 真分點模型
+    - 若不可用：退回 `institutional_proxy`，並在 UI/說明明確標示
+
+- **預測模型升級為實際可訓練模型**
+  - 使用近 4 年日線、技術指標與法人流向特徵
+  - 分成：
+    - 5 日勝率二元分類
+    - 次一交易日方向三元分類
+  - 模型檔預設寫到 `dashboard/api/models/`
+  - 該目錄已加入 `.gitignore`，避免把機器產出的模型 commit 進 repo
+
+**維護方式**
+
+- 手動離線重訓：
+  - `.venv/bin/python scripts/train_dashboard_models.py 2330`
+- 或從 API 觸發：
+  - `POST /api/stocks/2330/train-models`
+- 前端也提供「重訓模型」按鈕，方便 NAS 使用者直接操作
+
+**驗證方式**
+
+- `pytest -q tests/test_dashboard_api.py`
+- `cd dashboard/web && npm run build`
+- 額外應驗：
+  - `/signals` 的 `basis` 是否在有模型時變成 `trained_random_forest`
+  - 主力面板的 `method` 是否正確反映 `broker_top20` 或 `institutional_proxy`
+
 ### Phase 0：環境建置
 **日期**：2026-05-19  
 **主要產出**：
@@ -680,6 +727,7 @@ Henry 在 NAS 上以 `http://192.168.3.33:9080` 開啟 dashboard，輸入 `2330`
 | `scripts/send_tw_morning_briefing.sh` | 晨報產出 + Discord/LINE 發送便利包 |
 | `scripts/run_finmind_sse.sh` | 啟動 MCP SSE 伺服器 |
 | `scripts/ensure_finmind_sse.sh` | 確保 SSE 服務一直活著（定期檢查 + 重啟）|
+| `scripts/train_dashboard_models.py` | 離線重訓 dashboard 勝率 / 方向預測模型 |
 | `scripts/verify_mcp_finmind.py` | 驗證 FinMind API 可正常讀取 |
 | `scripts/verify_mcp_protocol.py` | 驗證 MCP stdio 協定溝通正常 |
 | `scripts/verify_mcp_sse.py` | 驗證 SSE 端點可達 |

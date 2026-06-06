@@ -11,6 +11,7 @@ from ..services.market_data import (
     fetch_pattern_payload,
     fetch_quote_payload,
     fetch_signal_payload,
+    retrain_prediction_models,
     refresh_stock_payload,
 )
 
@@ -115,5 +116,13 @@ def get_signals(stock_id: str, force_refresh: bool = Query(default=False)) -> di
 def refresh_stock(stock_id: str, limit: int = Query(default=120, ge=30, le=240)) -> dict:
     try:
         return refresh_stock_payload(_validate_stock_id(stock_id), limit=limit)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/{stock_id}/train-models")
+def train_models(stock_id: str) -> dict:
+    try:
+        return retrain_prediction_models(_validate_stock_id(stock_id))
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=str(exc)) from exc

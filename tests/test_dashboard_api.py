@@ -62,3 +62,9 @@ def test_phase4_endpoints_return_payloads():
     assert "trading_suggestion" in signals_payload
     assert "win_rate" in signals_payload
     assert "direction_prediction" in signals_payload
+
+    train = client.post("/api/stocks/2330/train-models")
+    assert train.status_code == 200
+    train_payload = train.json()
+    assert "trained_at" in train_payload
+    assert "metrics" in train_payload

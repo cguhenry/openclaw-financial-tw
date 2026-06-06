@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+import joblib
+import numpy as np
 import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
 
 from ..cache import TTLCache
 from ..config import settings
@@ -14,6 +18,7 @@ from ..config import settings
 
 ROOT = Path(__file__).resolve().parents[4]
 SERVER_PATH = ROOT / "mcp" / "finmind_server.py"
+MODELS_DIR = ROOT / "dashboard" / "api" / "models"
 CACHE = TTLCache()
 
 
@@ -37,6 +42,11 @@ def _resolve_stock_name(stock_id: str, quote_payload: dict[str, Any] | None) -> 
         if isinstance(name, str) and name.strip():
             return name.strip()
     return stock_id
+
+
+def _ensure_models_dir() -> Path:
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    return MODELS_DIR
 
 
 def fetch_quote_payload(stock_id: str, force_refresh: bool = False) -> dict[str, Any]:
@@ -82,34 +92,57 @@ def fetch_quote_payload(stock_id: str, force_refresh: bool = False) -> dict[str,
 
 
 def fetch_chart_payload(stock_id: str, timeframe: str = "daily", limit: int = 120, force_refresh: bool = False) -> dict[str, Any]:
-    if timeframe != "daily":
-        raise ValueError("Only daily timeframe is implemented in Phase 1")
-
-    safe_limit = min(max(limit, 30), 240)
+    safe_limit = min(max(limit, 5 if timeframe == "60min" else 30), 240)
     cache_key = f"chart:{stock_id}:{timeframe}:{safe_limit}"
     if not force_refresh:
         cached = CACHE.get(cache_key)
         if cached is not None:
             return cached
 
-    server = load_server_module()
-    start_date = (_today_taipei().date() - timedelta(days=420)).isoformat()
-    dataset = server.get_stock_price_daily(stock_id, start_date, max_rows=safe_limit)
     quote_payload = fetch_quote_payload(stock_id, force_refresh=force_refresh)
-    candles = [
-        {
-            "time": row["date"],
-            "open": row["open"],
-            "high": row["max"],
-            "low": row["min"],
-            "close": row["close"],
-            "volume": row["Trading_Volume"],
-            "turnover": row["Trading_turnover"],
-            "spread": row["spread"],
+    if timeframe == "daily":
+        server = load_server_module()
+        start_date = (_today_taipei().date() - timedelta(days=420)).isoformat()
+        dataset = server.get_stock_price_daily(stock_id, start_date, max_rows=safe_limit)
+        candles = [
+            {
+                "time": row["date"],
+                "open": row["open"],
+                "high": row["max"],
+                "low": row["min"],
+                "close": row["close"],
+                "volume": row["Trading_Volume"],
+                "turnover": row["Trading_turnover"],
+                "spread": row["spread"],
+            }
+            for row in dataset["data"]
+            if row.get("date")
+        ]
+    elif timeframe == "60min":
+        dataset = _fetch_fugle_intraday_candles(stock_id, timeframe="60")
+        candles = [
+            {
+                "time": row["date"],
+                "open": row["open"],
+                "high": row["high"],
+                "low": row["low"],
+                "close": row["close"],
+                "volume": row["volume"],
+                "turnover": 0,
+                "spread": round(float(row["close"]) - float(row["open"]), 2),
+            }
+            for row in dataset["data"]
+        ][-safe_limit:]
+    elif timeframe == "weekly":
+        daily_payload = fetch_chart_payload(stock_id, timeframe="daily", limit=180, force_refresh=force_refresh)
+        candles = _build_weekly_candles(daily_payload["candles"], limit=min(safe_limit, 52))
+        dataset = {
+            "source": daily_payload["meta"]["source"],
+            "dataset": "weekly_from_daily_resample",
+            "returned_rows": len(candles),
         }
-        for row in dataset["data"]
-        if row.get("date")
-    ]
+    else:
+        raise ValueError("Unsupported timeframe")
     result = {
         "stock": {
             "stock_id": stock_id,
@@ -126,6 +159,28 @@ def fetch_chart_payload(stock_id: str, timeframe: str = "daily", limit: int = 12
         },
     }
     return CACHE.set(cache_key, result, settings.chart_ttl_seconds)
+
+
+def _fetch_fugle_intraday_candles(stock_id: str, timeframe: str = "60") -> dict[str, Any]:
+    server = load_server_module()
+    key = server._fugle_api_key()
+    timeout = getattr(server, "DEFAULT_TIMEOUT", 20)
+    headers = {"X-API-KEY": key}
+    url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/candles/{stock_id}"
+    with server.httpx.Client(timeout=timeout, headers=headers) as client:
+        response = client.get(url, params={"timeframe": timeframe})
+        if response.status_code >= 400:
+            raise RuntimeError(f"Fugle intraday candles HTTP {response.status_code} for stock_id={stock_id}")
+        payload = response.json()
+    if not isinstance(payload, dict) or "data" not in payload:
+        raise RuntimeError("Fugle intraday candles returned an unexpected payload")
+    return {
+        "source": "Fugle",
+        "dataset": f"intraday_candles_{timeframe}",
+        "returned_rows": len(payload.get("data") or []),
+        "data": payload.get("data") or [],
+        "date": payload.get("date"),
+    }
 
 
 def _build_frame(candles: list[dict[str, Any]]) -> pd.DataFrame:
@@ -472,6 +527,281 @@ def _build_forecast_skeleton(analysis_payload: dict[str, Any], pattern_payload: 
     }
 
 
+def _fetch_historical_daily_frame(stock_id: str, years: int = 4) -> pd.DataFrame:
+    server = load_server_module()
+    start = (_today_taipei().date() - timedelta(days=365 * years)).isoformat()
+    dataset = server.get_stock_price_daily(stock_id, start, max_rows=1600)
+    frame = pd.DataFrame(dataset.get("data") or [])
+    if frame.empty:
+        raise ValueError("no historical price data available")
+    frame = frame.rename(
+        columns={
+            "date": "time",
+            "max": "high",
+            "min": "low",
+            "Trading_Volume": "volume",
+            "Trading_turnover": "turnover",
+        }
+    )
+    return frame[["time", "open", "high", "low", "close", "volume", "turnover"]].sort_values("time").reset_index(drop=True)
+
+
+def _fetch_historical_institutional_frame(stock_id: str, years: int = 4) -> pd.DataFrame:
+    server = load_server_module()
+    start = (_today_taipei().date() - timedelta(days=365 * years)).isoformat()
+    dataset = server.get_institutional_flows(stock_id, start, max_rows=8000)
+    rows = dataset.get("data") or []
+    frame = pd.DataFrame(rows)
+    if frame.empty:
+        return pd.DataFrame(columns=["time", "inst_total_net", "foreign_net", "trust_net", "dealer_net"])
+    frame["net"] = frame.apply(_net_from_row, axis=1)
+    pivot = frame.pivot_table(index="date", columns="name", values="net", aggfunc="sum", fill_value=0).sort_index().reset_index()
+    pivot["foreign_net"] = pivot.get("Foreign_Investor", 0)
+    pivot["trust_net"] = pivot.get("Investment_Trust", 0)
+    pivot["dealer_net"] = pivot.get("Dealer_self", 0) + pivot.get("Dealer_Hedging", 0) + pivot.get("Foreign_Dealer_Self", 0)
+    pivot["inst_total_net"] = pivot["foreign_net"] + pivot["trust_net"] + pivot["dealer_net"]
+    pivot = pivot.rename(columns={"date": "time"})
+    return pivot[["time", "inst_total_net", "foreign_net", "trust_net", "dealer_net"]]
+
+
+def _build_feature_frame(price_frame: pd.DataFrame, institutional_frame: pd.DataFrame) -> pd.DataFrame:
+    frame = price_frame.copy()
+    close = frame["close"].astype(float)
+    high = frame["high"].astype(float)
+    low = frame["low"].astype(float)
+    volume = frame["volume"].astype(float)
+
+    frame["return_1d"] = close.pct_change(1)
+    frame["return_3d"] = close.pct_change(3)
+    frame["return_5d"] = close.pct_change(5)
+    frame["volatility_5d"] = close.pct_change().rolling(5).std()
+    frame["range_pct"] = (high - low) / close.replace(0, np.nan)
+
+    ma5 = close.rolling(5).mean()
+    ma20 = close.rolling(20).mean()
+    ma60 = close.rolling(60).mean()
+    frame["ma5_gap"] = (close - ma5) / ma5
+    frame["ma20_gap"] = (close - ma20) / ma20
+    frame["ma60_gap"] = (close - ma60) / ma60
+
+    bb_std = close.rolling(20).std()
+    bb_upper = ma20 + bb_std * 2
+    bb_lower = ma20 - bb_std * 2
+    frame["bb_pct"] = (close - bb_lower) / (bb_upper - bb_lower).replace(0, np.nan)
+
+    low_9 = low.rolling(9).min()
+    high_9 = high.rolling(9).max()
+    k_fast = ((close - low_9) / (high_9 - low_9).replace(0, np.nan)) * 100
+    kd_k = k_fast.rolling(3).mean()
+    kd_d = kd_k.rolling(3).mean()
+    frame["kd_k"] = kd_k / 100
+    frame["kd_d"] = kd_d / 100
+
+    ema12 = close.ewm(span=12, adjust=False).mean()
+    ema26 = close.ewm(span=26, adjust=False).mean()
+    macd_dif = ema12 - ema26
+    macd_signal = macd_dif.ewm(span=9, adjust=False).mean()
+    frame["macd_dif"] = macd_dif
+    frame["macd_signal"] = macd_signal
+    frame["macd_hist"] = macd_dif - macd_signal
+
+    frame["volume_ratio_5d"] = volume / volume.rolling(5).mean()
+
+    merged = frame.merge(institutional_frame, on="time", how="left").fillna(0)
+    merged["inst_total_net_5d"] = merged["inst_total_net"].rolling(5).sum()
+    merged["foreign_net_5d"] = merged["foreign_net"].rolling(5).sum()
+    merged["dealer_net_5d"] = merged["dealer_net"].rolling(5).sum()
+
+    merged["win_label"] = (merged["close"].shift(-5) > merged["close"]).astype(int)
+    future_ret = merged["close"].shift(-1) / merged["close"] - 1
+    merged["direction_label"] = 2
+    merged.loc[future_ret > 0.015, "direction_label"] = 1
+    merged.loc[future_ret < -0.015, "direction_label"] = 0
+    return merged.replace([np.inf, -np.inf], np.nan).dropna().reset_index(drop=True)
+
+
+def _model_path(stock_id: str) -> Path:
+    return _ensure_models_dir() / f"{stock_id}_prediction.joblib"
+
+
+def train_prediction_models(stock_id: str) -> dict[str, Any]:
+    feature_names = [
+        "return_1d",
+        "return_3d",
+        "return_5d",
+        "volatility_5d",
+        "range_pct",
+        "ma5_gap",
+        "ma20_gap",
+        "ma60_gap",
+        "bb_pct",
+        "kd_k",
+        "kd_d",
+        "macd_dif",
+        "macd_signal",
+        "macd_hist",
+        "volume_ratio_5d",
+        "inst_total_net_5d",
+        "foreign_net_5d",
+        "dealer_net_5d",
+    ]
+    price_frame = _fetch_historical_daily_frame(stock_id, years=4)
+    institutional_frame = _fetch_historical_institutional_frame(stock_id, years=4)
+    frame = _build_feature_frame(price_frame, institutional_frame)
+    if len(frame) < 160:
+        raise ValueError("not enough historical rows to train prediction models")
+
+    split = max(int(len(frame) * 0.8), len(frame) - 120)
+    split = min(max(split, 100), len(frame) - 20)
+    train = frame.iloc[:split]
+    test = frame.iloc[split:]
+
+    X_train = train[feature_names]
+    X_test = test[feature_names]
+
+    win_model = RandomForestClassifier(
+        n_estimators=240,
+        max_depth=6,
+        min_samples_leaf=4,
+        random_state=42,
+        class_weight="balanced_subsample",
+    )
+    direction_model = RandomForestClassifier(
+        n_estimators=320,
+        max_depth=7,
+        min_samples_leaf=4,
+        random_state=42,
+        class_weight="balanced_subsample",
+    )
+    win_model.fit(X_train, train["win_label"])
+    direction_model.fit(X_train, train["direction_label"])
+
+    win_accuracy = float((win_model.predict(X_test) == test["win_label"]).mean())
+    direction_accuracy = float((direction_model.predict(X_test) == test["direction_label"]).mean())
+
+    package = {
+        "stock_id": stock_id,
+        "trained_at": datetime.now(timezone.utc).isoformat(),
+        "feature_names": feature_names,
+        "metrics": {
+            "win_accuracy": round(win_accuracy, 4),
+            "direction_accuracy": round(direction_accuracy, 4),
+            "train_rows": int(len(train)),
+            "test_rows": int(len(test)),
+        },
+        "win_model": win_model,
+        "direction_model": direction_model,
+        "latest_frame": frame.tail(120).to_dict(orient="records"),
+    }
+    joblib.dump(package, _model_path(stock_id))
+    return package
+
+
+def _load_prediction_package(stock_id: str) -> dict[str, Any]:
+    path = _model_path(stock_id)
+    if not path.exists():
+        return train_prediction_models(stock_id)
+    return joblib.load(path)
+
+
+def _predict_with_models(stock_id: str, main_force_payload: dict[str, Any], pattern_payload: dict[str, Any]) -> dict[str, Any]:
+    package = _load_prediction_package(stock_id)
+    feature_names = package["feature_names"]
+
+    price_frame = _fetch_historical_daily_frame(stock_id, years=4)
+    institutional_frame = _fetch_historical_institutional_frame(stock_id, years=4)
+    frame = _build_feature_frame(price_frame, institutional_frame)
+    latest = frame.iloc[[-1]].copy()
+    X_latest = latest[feature_names]
+
+    win_model = package["win_model"]
+    direction_model = package["direction_model"]
+    win_rate = round(float(win_model.predict_proba(X_latest)[0][1]) * 100, 1)
+    direction_proba = direction_model.predict_proba(X_latest)[0]
+    classes = list(direction_model.classes_)
+    probs = {int(cls): float(prob) for cls, prob in zip(classes, direction_proba)}
+    down_pct = round(probs.get(0, 0.0) * 100, 1)
+    up_pct = round(probs.get(1, 0.0) * 100, 1)
+    sideways_pct = round(probs.get(2, 0.0) * 100, 1)
+
+    predicted_class = max(probs.items(), key=lambda item: item[1])[0]
+    prediction_map = {0: ("down", "偏空"), 1: ("up", "偏多"), 2: ("sideways", "震盪")}
+    prediction, prediction_label = prediction_map[predicted_class]
+    confidence = round(max(up_pct, down_pct, sideways_pct), 1)
+
+    if pattern_payload["dominant_pattern"] == "w_bottom":
+        up_pct = round(min(95.0, up_pct + 3.0), 1)
+    elif pattern_payload["dominant_pattern"] == "m_top":
+        down_pct = round(min(95.0, down_pct + 3.0), 1)
+
+    if main_force_payload["summary"]["recent_5d_net"] > 0:
+        win_rate = round(min(92.0, win_rate + 2.0), 1)
+    elif main_force_payload["summary"]["recent_5d_net"] < 0:
+        win_rate = round(max(8.0, win_rate - 2.0), 1)
+
+    residual = round(max(0.0, 100 - up_pct - down_pct), 1)
+    sideways_pct = residual if residual else sideways_pct
+
+    return {
+        "win_rate": {
+            "value": win_rate,
+            "label": "短線勝率",
+            "basis": "trained_random_forest",
+            "note": "使用近 4 年日線、技術指標與法人流向訓練而成，可離線重訓。",
+            "metrics": package["metrics"],
+            "trained_at": package["trained_at"],
+        },
+        "direction_prediction": {
+            "prediction": prediction,
+            "prediction_label": prediction_label,
+            "up_pct": up_pct,
+            "down_pct": down_pct,
+            "sideways_pct": sideways_pct,
+            "confidence": confidence,
+            "basis": "trained_random_forest",
+            "note": "使用隨機森林三分類模型預測下一交易日方向，可透過 train-models 端點或腳本離線重訓。",
+            "metrics": package["metrics"],
+            "trained_at": package["trained_at"],
+        },
+    }
+
+
+def _fetch_broker_daily_report(stock_id: str, date: str) -> list[dict[str, Any]]:
+    server = load_server_module()
+    token = server._finmind_token()
+    url = "https://api.finmindtrade.com/api/v4/taiwan_stock_trading_daily_report"
+    headers = {"Authorization": f"Bearer {token}"}
+    with server.httpx.Client(timeout=getattr(server, "DEFAULT_TIMEOUT", 20), headers=headers) as client:
+        response = client.get(url, params={"data_id": stock_id, "date": date})
+        if response.status_code >= 400:
+            raise RuntimeError(response.text[:300])
+        payload = response.json()
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+        raise RuntimeError("unexpected broker trading payload")
+    return payload["data"]
+
+
+def _extract_broker_row_metrics(row: dict[str, Any]) -> tuple[str | None, float | None]:
+    broker_keys = [
+        "securities_trader",
+        "securities_trader_id",
+        "broker_id",
+        "broker",
+        "securities_company",
+        "branch",
+        "branch_name",
+        "securities_trader_name",
+    ]
+    broker = next((str(row[key]).strip() for key in broker_keys if row.get(key)), None)
+    buy_keys = ["buy", "buy_volume", "buy_shares", "buy_qty"]
+    sell_keys = ["sell", "sell_volume", "sell_shares", "sell_qty"]
+    buy_value = next((row[key] for key in buy_keys if row.get(key) is not None), None)
+    sell_value = next((row[key] for key in sell_keys if row.get(key) is not None), None)
+    if broker is None or buy_value is None or sell_value is None:
+        return None, None
+    return broker, float(buy_value) - float(sell_value)
+
+
 def fetch_analysis_payload(stock_id: str, force_refresh: bool = False) -> dict[str, Any]:
     cache_key = f"analysis:{stock_id}"
     if not force_refresh:
@@ -727,9 +1057,6 @@ def fetch_main_force_payload(stock_id: str, days: int = 10, force_refresh: bool 
         if cached is not None:
             return cached
 
-    method = "institutional_proxy"
-    note = "Broker 分點資料目前未穩定可用，先以法人淨買超與外資持股變化作為主力 proxy。"
-
     institutional = fetch_institutional_payload(stock_id, days=safe_days, force_refresh=force_refresh)
     rows = institutional["rows"]
     foreign_holding_ratio = None
@@ -747,22 +1074,60 @@ def fetch_main_force_payload(stock_id: str, days: int = 10, force_refresh: bool 
         foreign_holding_ratio = None
         foreign_holding_change = None
 
+    method = "institutional_proxy"
+    note = "Broker 分點資料目前未穩定可用，先以法人淨買超與外資持股變化作為主力 proxy。"
     enriched_rows: list[dict[str, Any]] = []
-    running = 0
-    for item in rows:
-        proxy_net = int(item["foreign"] + item["investment_trust"] + int(item["dealer_total"] * 0.5))
-        running += proxy_net
-        enriched_rows.append(
-            {
-                "date": item["date"],
-                "proxy_net": proxy_net,
-                "cumulative_net": running,
-                "institutional_total": item["total"],
-                "foreign": item["foreign"],
-                "investment_trust": item["investment_trust"],
-                "dealer_total": item["dealer_total"],
-            }
-        )
+
+    try:
+        broker_rows_by_date: list[tuple[str, list[dict[str, Any]]]] = []
+        for item in rows:
+            broker_rows_by_date.append((item["date"], _fetch_broker_daily_report(stock_id, item["date"])))
+
+        running = 0
+        for item, broker_rows in zip(rows, broker_rows_by_date, strict=False):
+            date_value, payload_rows = broker_rows
+            broker_scores: dict[str, float] = {}
+            for raw_row in payload_rows:
+                broker, net_value = _extract_broker_row_metrics(raw_row)
+                if broker is None or net_value is None:
+                    continue
+                broker_scores[broker] = broker_scores.get(broker, 0.0) + net_value
+            if not broker_scores:
+                raise RuntimeError("broker dataset missing expected columns")
+            top_n_sum = int(sum(value for _, value in sorted(broker_scores.items(), key=lambda pair: pair[1], reverse=True)[:20]))
+            running += top_n_sum
+            item_row = next(row for row in rows if row["date"] == date_value)
+            enriched_rows.append(
+                {
+                    "date": date_value,
+                    "proxy_net": top_n_sum,
+                    "cumulative_net": running,
+                    "institutional_total": item_row["total"],
+                    "foreign": item_row["foreign"],
+                    "investment_trust": item_row["investment_trust"],
+                    "dealer_total": item_row["dealer_total"],
+                }
+            )
+        method = "broker_top20"
+        note = "已使用 FinMind sponsor 分點資料，依每日前 20 大淨買超券商加總計算主力進出。"
+    except Exception as exc:
+        running = 0
+        enriched_rows = []
+        for item in rows:
+            proxy_net = int(item["foreign"] + item["investment_trust"] + int(item["dealer_total"] * 0.5))
+            running += proxy_net
+            enriched_rows.append(
+                {
+                    "date": item["date"],
+                    "proxy_net": proxy_net,
+                    "cumulative_net": running,
+                    "institutional_total": item["total"],
+                    "foreign": item["foreign"],
+                    "investment_trust": item["investment_trust"],
+                    "dealer_total": item["dealer_total"],
+                }
+            )
+        note = "Broker 分點資料未啟用或權限不足，已退回法人 proxy。細節：" + str(exc)[:120]
 
     recent_5d_net = sum(item["proxy_net"] for item in enriched_rows[-5:])
     recent_10d_net = sum(item["proxy_net"] for item in enriched_rows[-10:])
@@ -834,7 +1199,10 @@ def fetch_signal_payload(stock_id: str, force_refresh: bool = False) -> dict[str
         levels=analysis_payload["key_levels"],
         patterns=pattern_payload["patterns"],
     )
-    forecast = _build_forecast_skeleton(analysis_payload, pattern_payload["patterns"], main_force_payload)
+    try:
+        forecast = _predict_with_models(stock_id, main_force_payload, pattern_payload["patterns"])
+    except Exception:
+        forecast = _build_forecast_skeleton(analysis_payload, pattern_payload["patterns"], main_force_payload)
 
     result = {
         "stock": analysis_payload["stock"],
@@ -860,7 +1228,7 @@ def fetch_multi_period_payload(stock_id: str, force_refresh: bool = False) -> di
 
     chart_payload = fetch_chart_payload(stock_id, timeframe="daily", limit=180, force_refresh=force_refresh)
     candles = chart_payload["candles"]
-    short_daily = candles[-20:]
+    intraday_60 = fetch_chart_payload(stock_id, timeframe="60min", limit=12, force_refresh=force_refresh)
     daily = candles[-60:]
     weekly = _build_weekly_candles(candles, limit=26)
 
@@ -880,17 +1248,27 @@ def fetch_multi_period_payload(stock_id: str, force_refresh: bool = False) -> di
     result = {
         "stock": chart_payload["stock"],
         "periods": [
-            summarize("短週期", short_daily, "以近 20 根日 K 觀察短線節奏，作為分鐘級資料接入前的替代視角。"),
+            summarize("60分K", intraday_60["candles"], "使用 Fugle intraday candles 的真 60 分鐘資料。"),
             summarize("日K", daily, "觀察近 60 個交易日的主要波段。"),
             summarize("週K", weekly, "由日線重採樣，便於看中期結構。"),
         ],
         "meta": {
-            "source": chart_payload["meta"]["source"],
+            "source": intraday_60["meta"]["source"] + " / " + chart_payload["meta"]["source"],
             "fetched_at": datetime.now(timezone.utc).isoformat(),
             "cache_ttl_seconds": settings.chart_ttl_seconds,
         },
     }
     return CACHE.set(cache_key, result, settings.chart_ttl_seconds)
+
+
+def retrain_prediction_models(stock_id: str) -> dict[str, Any]:
+    package = train_prediction_models(stock_id)
+    return {
+        "stock_id": stock_id,
+        "trained_at": package["trained_at"],
+        "metrics": package["metrics"],
+        "model_path": str(_model_path(stock_id)),
+    }
 
 
 def refresh_stock_payload(stock_id: str, limit: int = 120) -> dict[str, Any]:
