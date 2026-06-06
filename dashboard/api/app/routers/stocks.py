@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 
-from ..services.market_data import fetch_analysis_payload, fetch_chart_payload, fetch_quote_payload, refresh_stock_payload
+from ..services.market_data import (
+    fetch_analysis_payload,
+    fetch_chart_payload,
+    fetch_institutional_payload,
+    fetch_main_force_payload,
+    fetch_multi_period_payload,
+    fetch_quote_payload,
+    refresh_stock_payload,
+)
 
 
 router = APIRouter(prefix="/api/stocks", tags=["stocks"])
@@ -49,6 +57,38 @@ def get_chart(
 def get_analysis(stock_id: str, force_refresh: bool = Query(default=False)) -> dict:
     try:
         return fetch_analysis_payload(_validate_stock_id(stock_id), force_refresh=force_refresh)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/{stock_id}/institutional")
+def get_institutional(
+    stock_id: str,
+    days: int = Query(default=10, ge=5, le=20),
+    force_refresh: bool = Query(default=False),
+) -> dict:
+    try:
+        return fetch_institutional_payload(_validate_stock_id(stock_id), days=days, force_refresh=force_refresh)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/{stock_id}/main-force")
+def get_main_force(
+    stock_id: str,
+    days: int = Query(default=10, ge=5, le=20),
+    force_refresh: bool = Query(default=False),
+) -> dict:
+    try:
+        return fetch_main_force_payload(_validate_stock_id(stock_id), days=days, force_refresh=force_refresh)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/{stock_id}/multi-period")
+def get_multi_period(stock_id: str, force_refresh: bool = Query(default=False)) -> dict:
+    try:
+        return fetch_multi_period_payload(_validate_stock_id(stock_id), force_refresh=force_refresh)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 

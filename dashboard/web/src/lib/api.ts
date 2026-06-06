@@ -92,6 +92,90 @@ export type AnalysisResponse = {
   };
 };
 
+export type InstitutionalResponse = {
+  stock: {
+    stock_id: string;
+    name: string;
+  };
+  rows: Array<{
+    date: string;
+    foreign: number;
+    investment_trust: number;
+    dealer_total: number;
+    dealer_self: number;
+    dealer_hedging: number;
+    foreign_dealer_self: number;
+    total: number;
+  }>;
+  summary: {
+    foreign_5d_net: number;
+    trust_5d_net: number;
+    dealer_5d_net: number;
+    total_5d_net: number;
+  };
+  meta: {
+    source: string;
+    dataset: string;
+    fetched_at: string;
+    cache_ttl_seconds: number;
+  };
+};
+
+export type MainForceResponse = {
+  stock: {
+    stock_id: string;
+    name: string;
+  };
+  method: string;
+  note: string;
+  signal: {
+    signal: string;
+    color: string;
+    message: string;
+  };
+  rows: Array<{
+    date: string;
+    proxy_net: number;
+    cumulative_net: number;
+    institutional_total: number;
+    foreign: number;
+    investment_trust: number;
+    dealer_total: number;
+  }>;
+  summary: {
+    recent_5d_net: number;
+    recent_10d_net: number;
+    foreign_holding_ratio: number | null;
+    foreign_holding_change: number | null;
+  };
+  meta: {
+    source: string;
+    fetched_at: string;
+    cache_ttl_seconds: number;
+  };
+};
+
+export type MultiPeriodResponse = {
+  stock: {
+    stock_id: string;
+    name: string;
+  };
+  periods: Array<{
+    id: string;
+    label: string;
+    candles: ChartCandle[];
+    trend: string;
+    change_pct: number;
+    last_close: number;
+    note: string | null;
+  }>;
+  meta: {
+    source: string;
+    fetched_at: string;
+    cache_ttl_seconds: number;
+  };
+};
+
 function resolveApiBaseUrl(): string {
   const configured = import.meta.env.VITE_API_BASE_URL as string | undefined;
   if (configured && configured.trim()) {
@@ -135,6 +219,34 @@ export function fetchAnalysis(stockId: string, forceRefresh = false): Promise<An
   return request<AnalysisResponse>("/api/stocks/" + stockId + "/analysis" + suffix);
 }
 
-export function refreshStock(stockId: string): Promise<{ quote: QuoteResponse; chart: ChartResponse; analysis: AnalysisResponse }> {
+export function fetchInstitutional(stockId: string, forceRefresh = false): Promise<InstitutionalResponse> {
+  const query = new URLSearchParams({ days: "10" });
+  if (forceRefresh) {
+    query.set("force_refresh", "true");
+  }
+  return request<InstitutionalResponse>("/api/stocks/" + stockId + "/institutional?" + query.toString());
+}
+
+export function fetchMainForce(stockId: string, forceRefresh = false): Promise<MainForceResponse> {
+  const query = new URLSearchParams({ days: "10" });
+  if (forceRefresh) {
+    query.set("force_refresh", "true");
+  }
+  return request<MainForceResponse>("/api/stocks/" + stockId + "/main-force?" + query.toString());
+}
+
+export function fetchMultiPeriod(stockId: string, forceRefresh = false): Promise<MultiPeriodResponse> {
+  const suffix = forceRefresh ? "?force_refresh=true" : "";
+  return request<MultiPeriodResponse>("/api/stocks/" + stockId + "/multi-period" + suffix);
+}
+
+export function refreshStock(stockId: string): Promise<{
+  quote: QuoteResponse;
+  chart: ChartResponse;
+  analysis: AnalysisResponse;
+  institutional: InstitutionalResponse;
+  main_force: MainForceResponse;
+  multi_period: MultiPeriodResponse;
+}> {
   return request("/api/stocks/" + stockId + "/refresh?limit=120", { method: "POST" });
 }

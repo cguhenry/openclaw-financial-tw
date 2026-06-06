@@ -94,6 +94,7 @@ button, input { font: inherit; }
 .roadmap-list { list-style: none; display: grid; gap: 10px; }
 .roadmap-list li { border-left: 3px solid rgba(255, 209, 102, 0.55); padding-left: 12px; color: var(--text-primary); }
 .bottom-grid { margin-top: 18px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.bottom-grid-secondary { align-items: stretch; }
 .mini-panel p { margin-bottom: 0; line-height: 1.6; }
 .table-panel { min-height: 100%; }
 .indicator-table-wrap { overflow-x: auto; }
@@ -125,8 +126,75 @@ button, input { font: inherit; }
 .direction-pill.up { color: var(--up); }
 .direction-pill.down { color: var(--down); }
 .direction-pill.flat { color: var(--text-accent); }
+.mini-summary-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.mini-summary-strip span,
+.mini-chart-meta span {
+  font-size: 12px;
+  color: var(--text-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  padding: 5px 8px;
+}
+.text-up { color: var(--up); }
+.text-down { color: var(--down); }
+.text-flat { color: var(--text-accent); }
+.main-force-signal {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.signal-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.03);
+  flex: 0 0 auto;
+}
+.signal-green { background: #00e676; box-shadow: 0 0 22px rgba(0, 230, 118, 0.55); }
+.signal-red { background: #ff5252; box-shadow: 0 0 22px rgba(255, 82, 82, 0.55); }
+.signal-yellow { background: #ffd166; box-shadow: 0 0 22px rgba(255, 209, 102, 0.55); }
+.multi-period-panel { grid-column: span 2; }
+.multi-period-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.mini-chart-card {
+  border-radius: 16px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-primary);
+}
+.mini-chart-head,
+.mini-chart-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+.mini-chart-head { margin-bottom: 10px; }
+.mini-chart-svg {
+  width: 100%;
+  height: 70px;
+  color: #8ecae6;
+  margin-bottom: 10px;
+}
+.mini-chart-card p {
+  color: var(--text-secondary);
+  line-height: 1.5;
+  font-size: 13px;
+  margin: 10px 0 0;
+}
 @media (max-width: 1080px) {
   .main-grid, .header-main, .header-stats, .bottom-grid { grid-template-columns: 1fr; }
   .price-block { text-align: left; }
   .price-delta { justify-content: flex-start; }
+  .multi-period-grid { grid-template-columns: 1fr; }
+  .multi-period-panel { grid-column: auto; }
 }

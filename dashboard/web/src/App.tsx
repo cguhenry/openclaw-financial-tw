@@ -1,9 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
 import { CandlesPanel } from "./components/CandlesPanel";
 import { IndicatorTable } from "./components/IndicatorTable";
+import { InstitutionalTable } from "./components/InstitutionalTable";
+import { MainForcePanel } from "./components/MainForcePanel";
+import { MultiPeriodPanel } from "./components/MultiPeriodPanel";
 import { SidebarPanel } from "./components/SidebarPanel";
 import { StockHeader } from "./components/StockHeader";
-import { fetchAnalysis, fetchChart, fetchQuote, refreshStock, type AnalysisResponse, type ChartResponse, type QuoteResponse } from "./lib/api";
+import {
+  fetchAnalysis,
+  fetchChart,
+  fetchInstitutional,
+  fetchMainForce,
+  fetchMultiPeriod,
+  fetchQuote,
+  refreshStock,
+  type AnalysisResponse,
+  type ChartResponse,
+  type InstitutionalResponse,
+  type MainForceResponse,
+  type MultiPeriodResponse,
+  type QuoteResponse
+} from "./lib/api";
 
 type Mode = "auto" | "manual";
 
@@ -21,6 +38,9 @@ export default function App() {
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
   const [chart, setChart] = useState<ChartResponse | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
+  const [institutional, setInstitutional] = useState<InstitutionalResponse | null>(null);
+  const [mainForce, setMainForce] = useState<MainForceResponse | null>(null);
+  const [multiPeriod, setMultiPeriod] = useState<MultiPeriodResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null);
@@ -29,10 +49,20 @@ export default function App() {
     setIsLoading(true);
     setError(null);
     try {
-      const result = await Promise.all([fetchQuote(stockId, forceRefresh), fetchChart(stockId, forceRefresh), fetchAnalysis(stockId, forceRefresh)]);
+      const result = await Promise.all([
+        fetchQuote(stockId, forceRefresh),
+        fetchChart(stockId, forceRefresh),
+        fetchAnalysis(stockId, forceRefresh),
+        fetchInstitutional(stockId, forceRefresh),
+        fetchMainForce(stockId, forceRefresh),
+        fetchMultiPeriod(stockId, forceRefresh)
+      ]);
       setQuote(result[0]);
       setChart(result[1]);
       setAnalysis(result[2]);
+      setInstitutional(result[3]);
+      setMainForce(result[4]);
+      setMultiPeriod(result[5]);
       setLastRefreshAt(new Date());
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Unknown error");
@@ -88,6 +118,9 @@ export default function App() {
       setQuote(payload.quote);
       setChart(payload.chart);
       setAnalysis(payload.analysis);
+      setInstitutional(payload.institutional);
+      setMainForce(payload.main_force);
+      setMultiPeriod(payload.multi_period);
       setLastRefreshAt(new Date());
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Unknown error");
@@ -131,8 +164,14 @@ export default function App() {
 
         <section className="bottom-grid">
           <IndicatorTable analysis={analysis} />
-          <div className="panel mini-panel"><p className="eyebrow">Reserved</p><h3>日 K / 週 K 縮圖</h3><p>先保留版位，避免 Phase 1 把多週期資料做半套。</p></div>
-          <div className="panel mini-panel"><p className="eyebrow">Reserved</p><h3>型態分析 / AI</h3><p>延後到資料與指標穩定後再開。</p></div>
+          <InstitutionalTable data={institutional} />
+          <MainForcePanel data={mainForce} />
+        </section>
+
+        <section className="bottom-grid bottom-grid-secondary">
+          <MultiPeriodPanel data={multiPeriod} />
+          <div className="panel mini-panel"><p className="eyebrow">Phase 3+</p><h3>日 K / 週 K 延伸分析</h3><p>目前先提供短週期、日 K、週 K 三視角。60 分 K 需等分鐘級資料源穩定後再接。</p></div>
+          <div className="panel mini-panel"><p className="eyebrow">Phase 4</p><h3>型態分析 / AI</h3><p>下一階段再接 W 底、M 頭、勝率與方向預測，避免在 Phase 3 混入不穩定模型輸出。</p></div>
         </section>
       </main>
     </div>

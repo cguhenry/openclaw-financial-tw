@@ -140,6 +140,61 @@ def _ema(series: pd.Series, span: int) -> pd.Series:
     return series.ewm(span=span, adjust=False).mean()
 
 
+def _start_date(days: int) -> str:
+    return (_today_taipei().date() - timedelta(days=days)).isoformat()
+
+
+def _net_from_row(row: dict[str, Any]) -> float:
+    return float((row.get("buy") or 0) - (row.get("sell") or 0))
+
+
+def _serialize_candle_frame(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for _, row in frame.iterrows():
+        rows.append(
+            {
+                "time": str(row["time"]),
+                "open": round(float(row["open"]), 2),
+                "high": round(float(row["high"]), 2),
+                "low": round(float(row["low"]), 2),
+                "close": round(float(row["close"]), 2),
+                "volume": int(row["volume"]),
+                "turnover": int(row["turnover"]),
+                "spread": round(float(row["close"]) - float(row["open"]), 2),
+            }
+        )
+    return rows
+
+
+def _build_weekly_candles(candles: list[dict[str, Any]], limit: int = 26) -> list[dict[str, Any]]:
+    frame = _build_frame(candles).copy()
+    frame["time"] = pd.to_datetime(frame["time"])
+    weekly = (
+        frame.set_index("time")
+        .resample("W-FRI")
+        .agg(
+            {
+                "open": "first",
+                "high": "max",
+                "low": "min",
+                "close": "last",
+                "volume": "sum",
+                "turnover": "sum",
+            }
+        )
+        .dropna()
+        .reset_index()
+    )
+    weekly["time"] = weekly["time"].dt.date.astype(str)
+    return _serialize_candle_frame(weekly.tail(limit))
+
+
+def _price_change_pct(first_close: float, last_close: float) -> float:
+    if not first_close:
+        return 0.0
+    return round(((last_close - first_close) / first_close) * 100, 2)
+
+
 def _describe_kd_signal(k_value: float, d_value: float) -> str:
     if k_value >= 80 and d_value >= 80:
         return "高檔鈍化"
@@ -374,12 +429,206 @@ def fetch_analysis_payload(stock_id: str, force_refresh: bool = False) -> dict[s
     return CACHE.set(cache_key, result, settings.analysis_ttl_seconds)
 
 
+def fetch_institutional_payload(stock_id: str, days: int = 10, force_refresh: bool = False) -> dict[str, Any]:
+    safe_days = min(max(days, 5), 20)
+    cache_key = f"institutional:{stock_id}:{safe_days}"
+    if not force_refresh:
+        cached = CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
+    server = load_server_module()
+    dataset = server.get_institutional_flows(stock_id, _start_date(safe_days * 4), max_rows=safe_days * 10)
+    rows = dataset.get("data") or []
+    frame = pd.DataFrame(rows)
+    if frame.empty:
+        raise ValueError("no institutional flow data available")
+
+    frame["net"] = frame.apply(_net_from_row, axis=1)
+    pivot = (
+        frame.pivot_table(index="date", columns="name", values="net", aggfunc="sum", fill_value=0)
+        .sort_index()
+        .tail(safe_days)
+        .reset_index()
+    )
+
+    normalized_rows: list[dict[str, Any]] = []
+    for _, row in pivot.iterrows():
+        foreign = int(row.get("Foreign_Investor", 0))
+        trust = int(row.get("Investment_Trust", 0))
+        dealer_self = int(row.get("Dealer_self", 0))
+        dealer_hedging = int(row.get("Dealer_Hedging", 0))
+        foreign_dealer = int(row.get("Foreign_Dealer_Self", 0))
+        dealer_total = dealer_self + dealer_hedging + foreign_dealer
+        total = foreign + trust + dealer_total
+        normalized_rows.append(
+            {
+                "date": row["date"],
+                "foreign": foreign,
+                "investment_trust": trust,
+                "dealer_total": dealer_total,
+                "dealer_self": dealer_self,
+                "dealer_hedging": dealer_hedging,
+                "foreign_dealer_self": foreign_dealer,
+                "total": total,
+            }
+        )
+
+    recent = normalized_rows[-5:] if len(normalized_rows) >= 5 else normalized_rows
+    summary = {
+        "foreign_5d_net": sum(item["foreign"] for item in recent),
+        "trust_5d_net": sum(item["investment_trust"] for item in recent),
+        "dealer_5d_net": sum(item["dealer_total"] for item in recent),
+        "total_5d_net": sum(item["total"] for item in recent),
+    }
+    result = {
+        "stock": {
+            "stock_id": stock_id,
+            "name": stock_id,
+        },
+        "rows": normalized_rows,
+        "summary": summary,
+        "meta": {
+            "source": dataset.get("source"),
+            "dataset": dataset.get("dataset"),
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "cache_ttl_seconds": settings.analysis_ttl_seconds,
+        },
+    }
+    return CACHE.set(cache_key, result, settings.analysis_ttl_seconds)
+
+
+def fetch_main_force_payload(stock_id: str, days: int = 10, force_refresh: bool = False) -> dict[str, Any]:
+    safe_days = min(max(days, 5), 20)
+    cache_key = f"main-force:{stock_id}:{safe_days}"
+    if not force_refresh:
+        cached = CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
+    method = "institutional_proxy"
+    note = "Broker 分點資料目前未穩定可用，先以法人淨買超與外資持股變化作為主力 proxy。"
+
+    institutional = fetch_institutional_payload(stock_id, days=safe_days, force_refresh=force_refresh)
+    rows = institutional["rows"]
+    foreign_holding_ratio = None
+    foreign_holding_change = None
+    try:
+        server = load_server_module()
+        holding = server.get_foreign_holding_pct(stock_id, _start_date(120), max_rows=2).get("data") or []
+        if holding:
+            foreign_holding_ratio = float(holding[-1].get("ForeignInvestmentSharesRatio") or 0)
+        if len(holding) >= 2:
+            current = float(holding[-1].get("ForeignInvestmentSharesRatio") or 0)
+            previous = float(holding[-2].get("ForeignInvestmentSharesRatio") or 0)
+            foreign_holding_change = round(current - previous, 2)
+    except Exception:
+        foreign_holding_ratio = None
+        foreign_holding_change = None
+
+    enriched_rows: list[dict[str, Any]] = []
+    running = 0
+    for item in rows:
+        proxy_net = int(item["foreign"] + item["investment_trust"] + int(item["dealer_total"] * 0.5))
+        running += proxy_net
+        enriched_rows.append(
+            {
+                "date": item["date"],
+                "proxy_net": proxy_net,
+                "cumulative_net": running,
+                "institutional_total": item["total"],
+                "foreign": item["foreign"],
+                "investment_trust": item["investment_trust"],
+                "dealer_total": item["dealer_total"],
+            }
+        )
+
+    recent_5d_net = sum(item["proxy_net"] for item in enriched_rows[-5:])
+    recent_10d_net = sum(item["proxy_net"] for item in enriched_rows[-10:])
+    recent_trend = sum(item["proxy_net"] for item in enriched_rows[-3:])
+
+    if recent_10d_net > 0 and recent_trend > 0:
+        signal = {"signal": "買超初期", "color": "green", "message": "法人 proxy 仍在增倉，短線偏多。"}
+    elif recent_10d_net < 0 or recent_trend < 0:
+        signal = {"signal": "出貨初期", "color": "red", "message": "法人 proxy 轉弱，需留意追價風險。"}
+    else:
+        signal = {"signal": "觀望期", "color": "yellow", "message": "主力方向未完全表態，先觀察關鍵價位。"}
+
+    result = {
+        "stock": institutional["stock"],
+        "method": method,
+        "note": note,
+        "signal": signal,
+        "rows": enriched_rows,
+        "summary": {
+            "recent_5d_net": recent_5d_net,
+            "recent_10d_net": recent_10d_net,
+            "foreign_holding_ratio": foreign_holding_ratio,
+            "foreign_holding_change": foreign_holding_change,
+        },
+        "meta": {
+            "source": institutional["meta"]["source"],
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "cache_ttl_seconds": settings.analysis_ttl_seconds,
+        },
+    }
+    return CACHE.set(cache_key, result, settings.analysis_ttl_seconds)
+
+
+def fetch_multi_period_payload(stock_id: str, force_refresh: bool = False) -> dict[str, Any]:
+    cache_key = f"multi-period:{stock_id}"
+    if not force_refresh:
+        cached = CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
+    chart_payload = fetch_chart_payload(stock_id, timeframe="daily", limit=180, force_refresh=force_refresh)
+    candles = chart_payload["candles"]
+    short_daily = candles[-20:]
+    daily = candles[-60:]
+    weekly = _build_weekly_candles(candles, limit=26)
+
+    def summarize(label: str, series: list[dict[str, Any]], note: str | None = None) -> dict[str, Any]:
+        first_close = float(series[0]["close"])
+        last_close = float(series[-1]["close"])
+        return {
+            "id": label,
+            "label": label,
+            "candles": series,
+            "trend": "上行" if last_close > first_close else "下行" if last_close < first_close else "盤整",
+            "change_pct": _price_change_pct(first_close, last_close),
+            "last_close": last_close,
+            "note": note,
+        }
+
+    result = {
+        "stock": chart_payload["stock"],
+        "periods": [
+            summarize("短週期", short_daily, "以近 20 根日 K 觀察短線節奏，作為分鐘級資料接入前的替代視角。"),
+            summarize("日K", daily, "觀察近 60 個交易日的主要波段。"),
+            summarize("週K", weekly, "由日線重採樣，便於看中期結構。"),
+        ],
+        "meta": {
+            "source": chart_payload["meta"]["source"],
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "cache_ttl_seconds": settings.chart_ttl_seconds,
+        },
+    }
+    return CACHE.set(cache_key, result, settings.chart_ttl_seconds)
+
+
 def refresh_stock_payload(stock_id: str, limit: int = 120) -> dict[str, Any]:
     CACHE.delete_prefix(f"quote:{stock_id}")
     CACHE.delete_prefix(f"chart:{stock_id}:")
     CACHE.delete_prefix(f"analysis:{stock_id}")
+    CACHE.delete_prefix(f"institutional:{stock_id}:")
+    CACHE.delete_prefix(f"main-force:{stock_id}:")
+    CACHE.delete_prefix(f"multi-period:{stock_id}")
     return {
         "quote": fetch_quote_payload(stock_id, force_refresh=True),
         "chart": fetch_chart_payload(stock_id, timeframe="daily", limit=limit, force_refresh=True),
         "analysis": fetch_analysis_payload(stock_id, force_refresh=True),
+        "institutional": fetch_institutional_payload(stock_id, force_refresh=True),
+        "main_force": fetch_main_force_payload(stock_id, force_refresh=True),
+        "multi_period": fetch_multi_period_payload(stock_id, force_refresh=True),
     }

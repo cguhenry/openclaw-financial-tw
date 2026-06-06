@@ -278,6 +278,37 @@ FinMind 提供的欄位更完整（包含還原股價、分點、融資券等）
 - 若未來要做 60 分 K / 週 K，小心不要把日線邏輯硬套到分鐘資料；先明確分離 timeframe 與資料來源。
 - 若同區網仍出現 `Failed to fetch`，先檢查 web 容器是否仍有 `/api` reverse proxy，而不是先懷疑 CORS。
 
+#### Phase 3：法人 / 主力 / 多週期面板
+
+**主要產出**
+
+- 新增 `/api/stocks/{stock_id}/institutional`
+- 新增 `/api/stocks/{stock_id}/main-force`
+- 新增 `/api/stocks/{stock_id}/multi-period`
+- 前端新增三大法人表、主力進出燈號卡、多週期縮圖卡
+
+**這一階段最重要的技術決策**
+
+- **主力進出先採 proxy，不假裝是真分點模型。**
+  - 原因：FinMind 的 `TaiwanStockTradingDailyReport` 在目前環境回 `HTTP 400`，不足以當穩定 Phase 3 依賴。
+  - 目前做法：用「外資 + 投信 + 0.5 倍自營商」組成 `proxy_net`，再搭配外資持股比變化，輸出主力燈號。
+  - UI 與 API 都明確標示 `institutional_proxy` 與說明文字，避免誤導後續維護者。
+
+- **多週期縮圖先不硬做 60 分 K。**
+  - 短週期視角目前用「近 20 根日 K」替代。
+  - 中期用近 60 根日 K。
+  - 週 K 由日線重採樣得到。
+  - 後續若接入穩定分鐘資料源，再把短週期卡替換成真正 60 分 K，不需要改前端骨架。
+
+**驗證方式**
+
+- `pytest -q tests/test_dashboard_api.py`
+- `cd dashboard/web && npm run build`
+- 實際檢查：
+  - 三大法人表是否有 10 日資料
+  - 主力卡是否顯示 method / signal / note
+  - 多週期縮圖是否回傳 3 組 period payload
+
 ### Phase 0：環境建置
 **日期**：2026-05-19  
 **主要產出**：
