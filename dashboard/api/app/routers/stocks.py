@@ -8,7 +8,9 @@ from ..services.market_data import (
     fetch_institutional_payload,
     fetch_main_force_payload,
     fetch_multi_period_payload,
+    fetch_pattern_payload,
     fetch_quote_payload,
+    fetch_signal_payload,
     refresh_stock_payload,
 )
 
@@ -89,6 +91,22 @@ def get_main_force(
 def get_multi_period(stock_id: str, force_refresh: bool = Query(default=False)) -> dict:
     try:
         return fetch_multi_period_payload(_validate_stock_id(stock_id), force_refresh=force_refresh)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/{stock_id}/patterns")
+def get_patterns(stock_id: str, force_refresh: bool = Query(default=False)) -> dict:
+    try:
+        return fetch_pattern_payload(_validate_stock_id(stock_id), force_refresh=force_refresh)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/{stock_id}/signals")
+def get_signals(stock_id: str, force_refresh: bool = Query(default=False)) -> dict:
+    try:
+        return fetch_signal_payload(_validate_stock_id(stock_id), force_refresh=force_refresh)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 

@@ -4,22 +4,29 @@ import { IndicatorTable } from "./components/IndicatorTable";
 import { InstitutionalTable } from "./components/InstitutionalTable";
 import { MainForcePanel } from "./components/MainForcePanel";
 import { MultiPeriodPanel } from "./components/MultiPeriodPanel";
+import { PatternAnalysisPanel } from "./components/PatternAnalysisPanel";
+import { PredictionPanel } from "./components/PredictionPanel";
 import { SidebarPanel } from "./components/SidebarPanel";
 import { StockHeader } from "./components/StockHeader";
+import { SuggestionPanel } from "./components/SuggestionPanel";
 import {
   fetchAnalysis,
   fetchChart,
   fetchInstitutional,
   fetchMainForce,
   fetchMultiPeriod,
+  fetchPatterns,
   fetchQuote,
+  fetchSignals,
   refreshStock,
   type AnalysisResponse,
   type ChartResponse,
   type InstitutionalResponse,
   type MainForceResponse,
   type MultiPeriodResponse,
+  type PatternResponse,
   type QuoteResponse
+  , type SignalResponse
 } from "./lib/api";
 
 type Mode = "auto" | "manual";
@@ -41,6 +48,8 @@ export default function App() {
   const [institutional, setInstitutional] = useState<InstitutionalResponse | null>(null);
   const [mainForce, setMainForce] = useState<MainForceResponse | null>(null);
   const [multiPeriod, setMultiPeriod] = useState<MultiPeriodResponse | null>(null);
+  const [patterns, setPatterns] = useState<PatternResponse | null>(null);
+  const [signals, setSignals] = useState<SignalResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null);
@@ -55,7 +64,9 @@ export default function App() {
         fetchAnalysis(stockId, forceRefresh),
         fetchInstitutional(stockId, forceRefresh),
         fetchMainForce(stockId, forceRefresh),
-        fetchMultiPeriod(stockId, forceRefresh)
+        fetchMultiPeriod(stockId, forceRefresh),
+        fetchPatterns(stockId, forceRefresh),
+        fetchSignals(stockId, forceRefresh)
       ]);
       setQuote(result[0]);
       setChart(result[1]);
@@ -63,6 +74,8 @@ export default function App() {
       setInstitutional(result[3]);
       setMainForce(result[4]);
       setMultiPeriod(result[5]);
+      setPatterns(result[6]);
+      setSignals(result[7]);
       setLastRefreshAt(new Date());
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Unknown error");
@@ -121,6 +134,8 @@ export default function App() {
       setInstitutional(payload.institutional);
       setMainForce(payload.main_force);
       setMultiPeriod(payload.multi_period);
+      setPatterns(payload.patterns);
+      setSignals(payload.signals);
       setLastRefreshAt(new Date());
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Unknown error");
@@ -170,8 +185,14 @@ export default function App() {
 
         <section className="bottom-grid bottom-grid-secondary">
           <MultiPeriodPanel data={multiPeriod} />
-          <div className="panel mini-panel"><p className="eyebrow">Phase 3+</p><h3>日 K / 週 K 延伸分析</h3><p>目前先提供短週期、日 K、週 K 三視角。60 分 K 需等分鐘級資料源穩定後再接。</p></div>
-          <div className="panel mini-panel"><p className="eyebrow">Phase 4</p><h3>型態分析 / AI</h3><p>下一階段再接 W 底、M 頭、勝率與方向預測，避免在 Phase 3 混入不穩定模型輸出。</p></div>
+          <PatternAnalysisPanel data={patterns} />
+          <PredictionPanel data={signals} />
+        </section>
+
+        <section className="bottom-grid bottom-grid-secondary">
+          <SuggestionPanel data={signals} />
+          <div className="panel mini-panel"><p className="eyebrow">Phase 4</p><h3>AI 骨架說明</h3><p>本版勝率與方向預測屬於 rule-based skeleton，重點是先定好 API 契約、UI 位置與可替換邏輯，之後可無痛替換成真模型。</p></div>
+          <div className="panel mini-panel"><p className="eyebrow">Next</p><h3>後續擴充</h3><p>下一步可把分鐘資料、真分點主力模型、以及實際訓練好的分類器接到現有 Phase 4 面板，而不需要重新切版。</p></div>
         </section>
       </main>
     </div>

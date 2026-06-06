@@ -68,6 +68,7 @@ export type AnalysisResponse = {
     bb_position: string;
     bb_channel: string;
     composite_evaluation: string;
+    last_close: number;
   };
   key_levels: {
     resistance: { low: number; high: number };
@@ -88,6 +89,76 @@ export type AnalysisResponse = {
   meta: {
     source: string;
     generated_at: string;
+    cache_ttl_seconds: number;
+  };
+};
+
+export type PatternResponse = {
+  stock: {
+    stock_id: string;
+    name: string;
+  };
+  patterns: {
+    dominant_pattern: string;
+    w_bottom: {
+      formed: boolean;
+      stage: string;
+      l1_price: number | null;
+      l2_price: number | null;
+      neckline: number | null;
+      breakout: boolean;
+      reason: string;
+    };
+    m_top: {
+      formed: boolean;
+      stage: string;
+      h1_price: number | null;
+      h2_price: number | null;
+      neckline: number | null;
+      breakdown: boolean;
+      reason: string;
+    };
+  };
+  meta: {
+    source: string;
+    fetched_at: string;
+    cache_ttl_seconds: number;
+  };
+};
+
+export type SignalResponse = {
+  stock: {
+    stock_id: string;
+    name: string;
+  };
+  pattern_analysis: PatternResponse["patterns"];
+  trading_suggestion: {
+    strategy: string;
+    breakout_condition: string;
+    pullback_plan: string;
+    stop_loss: string;
+    risk_note: string;
+    last_close: number;
+  };
+  win_rate: {
+    value: number;
+    label: string;
+    basis: string;
+    note: string;
+  };
+  direction_prediction: {
+    prediction: string;
+    prediction_label: string;
+    up_pct: number;
+    down_pct: number;
+    sideways_pct: number;
+    confidence: number;
+    basis: string;
+    note: string;
+  };
+  meta: {
+    source: string;
+    fetched_at: string;
     cache_ttl_seconds: number;
   };
 };
@@ -240,6 +311,16 @@ export function fetchMultiPeriod(stockId: string, forceRefresh = false): Promise
   return request<MultiPeriodResponse>("/api/stocks/" + stockId + "/multi-period" + suffix);
 }
 
+export function fetchPatterns(stockId: string, forceRefresh = false): Promise<PatternResponse> {
+  const suffix = forceRefresh ? "?force_refresh=true" : "";
+  return request<PatternResponse>("/api/stocks/" + stockId + "/patterns" + suffix);
+}
+
+export function fetchSignals(stockId: string, forceRefresh = false): Promise<SignalResponse> {
+  const suffix = forceRefresh ? "?force_refresh=true" : "";
+  return request<SignalResponse>("/api/stocks/" + stockId + "/signals" + suffix);
+}
+
 export function refreshStock(stockId: string): Promise<{
   quote: QuoteResponse;
   chart: ChartResponse;
@@ -247,6 +328,8 @@ export function refreshStock(stockId: string): Promise<{
   institutional: InstitutionalResponse;
   main_force: MainForceResponse;
   multi_period: MultiPeriodResponse;
+  patterns: PatternResponse;
+  signals: SignalResponse;
 }> {
   return request("/api/stocks/" + stockId + "/refresh?limit=120", { method: "POST" });
 }

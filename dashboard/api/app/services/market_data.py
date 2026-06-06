@@ -195,6 +195,23 @@ def _price_change_pct(first_close: float, last_close: float) -> float:
     return round(((last_close - first_close) / first_close) * 100, 2)
 
 
+def _find_local_extrema(values: list[float], order: int = 3) -> tuple[list[int], list[int]]:
+    highs: list[int] = []
+    lows: list[int] = []
+    for index in range(order, len(values) - order):
+        window = values[index - order : index + order + 1]
+        center = values[index]
+        if center == max(window) and window.count(center) == 1:
+            highs.append(index)
+        if center == min(window) and window.count(center) == 1:
+            lows.append(index)
+    return highs, lows
+
+
+def _clamp(value: float, minimum: float, maximum: float) -> float:
+    return max(minimum, min(maximum, value))
+
+
 def _describe_kd_signal(k_value: float, d_value: float) -> str:
     if k_value >= 80 and d_value >= 80:
         return "高檔鈍化"
@@ -250,6 +267,209 @@ def _compose_evaluation(
     if "均線糾結" in ma_signal and "收斂" in bb_channel:
         return "均線糾結且布林收斂，典型等待突破的壓縮區。操作重點不在猜方向，而在觀察壓力區與支撐區哪一側先被有效突破。"
     return "技術面仍在整理區間內，現階段訊號彼此沒有完全共振。較穩健的做法是等待量價與 MACD/KD 同步表態後再決定是否進場。"
+
+
+def _detect_patterns(frame: pd.DataFrame) -> dict[str, Any]:
+    recent = frame.tail(60).reset_index(drop=True)
+    highs = recent["high"].astype(float).tolist()
+    lows = recent["low"].astype(float).tolist()
+    closes = recent["close"].astype(float).tolist()
+    high_idx, low_idx = _find_local_extrema(closes, order=3)
+
+    w_bottom = {
+        "formed": False,
+        "stage": "等待低點結構",
+        "l1_price": None,
+        "l2_price": None,
+        "neckline": None,
+        "breakout": False,
+        "reason": "近 60 根資料內尚未形成可辨識雙底。",
+    }
+    if len(low_idx) >= 2:
+        l1_idx, l2_idx = low_idx[-2], low_idx[-1]
+        l1 = lows[l1_idx]
+        l2 = lows[l2_idx]
+        neckline = max(highs[l1_idx:l2_idx + 1]) if l2_idx > l1_idx else highs[l2_idx]
+        diff_pct = abs(l1 - l2) / max(l1, 1)
+        breakout = closes[-1] > neckline
+        if diff_pct <= 0.035:
+            w_bottom = {
+                "formed": breakout,
+                "stage": "突破頸線" if breakout else "等待突破",
+                "l1_price": round(l1, 2),
+                "l2_price": round(l2, 2),
+                "neckline": round(neckline, 2),
+                "breakout": breakout,
+                "reason": "雙底低點高度接近，已具備 W 底輪廓。" if not breakout else "已向上突破頸線，W 底型態成立。",
+            }
+        else:
+            w_bottom = {
+                "formed": False,
+                "stage": "低點未對稱",
+                "l1_price": round(l1, 2),
+                "l2_price": round(l2, 2),
+                "neckline": round(neckline, 2),
+                "breakout": breakout,
+                "reason": "兩個低點落差過大，暫不視為有效 W 底。",
+            }
+
+    m_top = {
+        "formed": False,
+        "stage": "等待高點結構",
+        "h1_price": None,
+        "h2_price": None,
+        "neckline": None,
+        "breakdown": False,
+        "reason": "近 60 根資料內尚未形成可辨識雙頭。",
+    }
+    if len(high_idx) >= 2:
+        h1_idx, h2_idx = high_idx[-2], high_idx[-1]
+        h1 = highs[h1_idx]
+        h2 = highs[h2_idx]
+        neckline = min(lows[h1_idx:h2_idx + 1]) if h2_idx > h1_idx else lows[h2_idx]
+        diff_pct = abs(h1 - h2) / max(h1, 1)
+        breakdown = closes[-1] < neckline
+        if diff_pct <= 0.035:
+            m_top = {
+                "formed": breakdown,
+                "stage": "跌破頸線" if breakdown else "等待跌破",
+                "h1_price": round(h1, 2),
+                "h2_price": round(h2, 2),
+                "neckline": round(neckline, 2),
+                "breakdown": breakdown,
+                "reason": "雙頭高度接近，已具備 M 頭輪廓。" if not breakdown else "已跌破頸線，M 頭型態成立。",
+            }
+        else:
+            m_top = {
+                "formed": False,
+                "stage": "高點未對稱",
+                "h1_price": round(h1, 2),
+                "h2_price": round(h2, 2),
+                "neckline": round(neckline, 2),
+                "breakdown": breakdown,
+                "reason": "兩個高點差距過大，暫不視為有效 M 頭。",
+            }
+
+    dominant = "none"
+    if w_bottom["formed"]:
+        dominant = "w_bottom"
+    elif m_top["formed"]:
+        dominant = "m_top"
+    elif w_bottom["stage"] != "等待低點結構":
+        dominant = "w_bottom_setup"
+    elif m_top["stage"] != "等待高點結構":
+        dominant = "m_top_setup"
+
+    return {
+        "w_bottom": w_bottom,
+        "m_top": m_top,
+        "dominant_pattern": dominant,
+    }
+
+
+def _generate_trading_suggestion(
+    *,
+    last_close: float,
+    summary: dict[str, Any],
+    levels: dict[str, Any],
+    patterns: dict[str, Any],
+) -> dict[str, Any]:
+    resistance_high = levels["resistance"]["high"]
+    pullback_low = levels["pullback"]["low"]
+    support_low = levels["support"]["low"]
+
+    if patterns["w_bottom"]["formed"]:
+        strategy = "型態已轉強，可優先觀察突破後回測頸線是否守穩。"
+        risk_note = "若跌回頸線下方且量縮失敗，需防假突破。"
+    elif patterns["m_top"]["formed"]:
+        strategy = "型態已轉弱，反彈較偏減碼而非追進。"
+        risk_note = "若重新站回頸線上方，空方訊號會明顯鈍化。"
+    elif summary["trend_direction"] == "多頭趨勢" and "偏熱" in summary["bb_position"]:
+        strategy = "不追高，等待回檔到回檔區或 MA20 附近再觀察承接。"
+        risk_note = "高檔量縮時，短線洗盤機率上升。"
+    elif summary["trend_direction"] == "空頭趨勢":
+        strategy = "先觀察支撐區是否止穩，未止穩前不急著攤平。"
+        risk_note = "空方慣性未消失前，反彈容易受壓。"
+    else:
+        strategy = "以區間交易思路看待，等待關鍵價位被有效突破。"
+        risk_note = "沒有量價共振前，訊號容易反覆。"
+
+    return {
+        "strategy": strategy,
+        "breakout_condition": f"有效站上 {resistance_high:.2f} 並伴隨量能放大，再視為突破成立。",
+        "pullback_plan": f"若回檔至 {pullback_low:.2f} 上方止穩，可觀察是否出現重新轉強訊號。",
+        "stop_loss": f"跌破 {support_low:.2f} 且無法快速收復時，視為結構轉弱。",
+        "risk_note": risk_note,
+        "last_close": round(last_close, 2),
+    }
+
+
+def _build_forecast_skeleton(analysis_payload: dict[str, Any], pattern_payload: dict[str, Any], main_force_payload: dict[str, Any]) -> dict[str, Any]:
+    summary = analysis_payload["technical_summary"]
+    indicators = {item["name"]: item for item in analysis_payload["indicator_summary"]}
+    score = 50.0
+
+    if summary["trend_direction"] == "多頭趨勢":
+        score += 10
+    elif summary["trend_direction"] == "空頭趨勢":
+        score -= 10
+
+    if "黃金交叉" in indicators["KD"]["signal"] or "低檔" in indicators["KD"]["signal"]:
+        score += 6
+    elif "死亡交叉" in indicators["KD"]["signal"] or "高檔鈍化" in indicators["KD"]["signal"]:
+        score -= 6
+
+    if "多頭" in indicators["MACD"]["signal"] or "翻多" in indicators["MACD"]["signal"]:
+        score += 8
+    elif "空頭" in indicators["MACD"]["signal"] or "轉弱" in indicators["MACD"]["signal"]:
+        score -= 8
+
+    if main_force_payload["summary"]["recent_5d_net"] > 0:
+        score += 6
+    elif main_force_payload["summary"]["recent_5d_net"] < 0:
+        score -= 6
+
+    if pattern_payload["dominant_pattern"] == "w_bottom":
+        score += 10
+    elif pattern_payload["dominant_pattern"] == "m_top":
+        score -= 10
+
+    score = _clamp(score, 15, 85)
+    down_pct = round(_clamp(100 - score - 18, 10, 70), 1)
+    sideways_pct = round(max(5.0, 100 - score - down_pct), 1)
+    up_pct = round(100 - down_pct - sideways_pct, 1)
+
+    if up_pct >= down_pct and up_pct >= sideways_pct:
+        prediction = "up"
+        prediction_label = "偏多"
+    elif down_pct >= up_pct and down_pct >= sideways_pct:
+        prediction = "down"
+        prediction_label = "偏空"
+    else:
+        prediction = "sideways"
+        prediction_label = "震盪"
+
+    win_rate = round(_clamp(score + 5, 20, 88), 1)
+    confidence = round(max(up_pct, down_pct, sideways_pct), 1)
+
+    return {
+        "win_rate": {
+            "value": win_rate,
+            "label": "短線勝率",
+            "basis": "rule_based_skeleton",
+            "note": "此數值目前由技術指標、主力 proxy 與型態規則合成，屬於 API 骨架，後續可替換成實際模型。",
+        },
+        "direction_prediction": {
+            "prediction": prediction,
+            "prediction_label": prediction_label,
+            "up_pct": up_pct,
+            "down_pct": down_pct,
+            "sideways_pct": sideways_pct,
+            "confidence": confidence,
+            "basis": "rule_based_skeleton",
+            "note": "本階段先提供透明可追溯的 rule-based 機率分配，非訓練後機器學習模型。",
+        },
+    }
 
 
 def fetch_analysis_payload(stock_id: str, force_refresh: bool = False) -> dict[str, Any]:
@@ -408,6 +628,7 @@ def fetch_analysis_payload(stock_id: str, force_refresh: bool = False) -> dict[s
             "bb_position": bb_position,
             "bb_channel": bb_channel,
             "composite_evaluation": evaluation,
+            "last_close": round(latest_close, 2),
         },
         "key_levels": {
             "resistance": resistance,
@@ -575,6 +796,61 @@ def fetch_main_force_payload(stock_id: str, days: int = 10, force_refresh: bool 
     return CACHE.set(cache_key, result, settings.analysis_ttl_seconds)
 
 
+def fetch_pattern_payload(stock_id: str, force_refresh: bool = False) -> dict[str, Any]:
+    cache_key = f"pattern:{stock_id}"
+    if not force_refresh:
+        cached = CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
+    chart_payload = fetch_chart_payload(stock_id, timeframe="daily", limit=180, force_refresh=force_refresh)
+    frame = _build_frame(chart_payload["candles"])
+    result = {
+        "stock": chart_payload["stock"],
+        "patterns": _detect_patterns(frame),
+        "meta": {
+            "source": chart_payload["meta"]["source"],
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "cache_ttl_seconds": settings.analysis_ttl_seconds,
+        },
+    }
+    return CACHE.set(cache_key, result, settings.analysis_ttl_seconds)
+
+
+def fetch_signal_payload(stock_id: str, force_refresh: bool = False) -> dict[str, Any]:
+    cache_key = f"signal:{stock_id}"
+    if not force_refresh:
+        cached = CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
+    analysis_payload = fetch_analysis_payload(stock_id, force_refresh=force_refresh)
+    pattern_payload = fetch_pattern_payload(stock_id, force_refresh=force_refresh)
+    main_force_payload = fetch_main_force_payload(stock_id, force_refresh=force_refresh)
+
+    suggestion = _generate_trading_suggestion(
+        last_close=analysis_payload["technical_summary"].get("last_close", 0) or analysis_payload["key_levels"]["pullback"]["high"],
+        summary=analysis_payload["technical_summary"],
+        levels=analysis_payload["key_levels"],
+        patterns=pattern_payload["patterns"],
+    )
+    forecast = _build_forecast_skeleton(analysis_payload, pattern_payload["patterns"], main_force_payload)
+
+    result = {
+        "stock": analysis_payload["stock"],
+        "pattern_analysis": pattern_payload["patterns"],
+        "trading_suggestion": suggestion,
+        "win_rate": forecast["win_rate"],
+        "direction_prediction": forecast["direction_prediction"],
+        "meta": {
+            "source": analysis_payload["meta"]["source"],
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "cache_ttl_seconds": settings.analysis_ttl_seconds,
+        },
+    }
+    return CACHE.set(cache_key, result, settings.analysis_ttl_seconds)
+
+
 def fetch_multi_period_payload(stock_id: str, force_refresh: bool = False) -> dict[str, Any]:
     cache_key = f"multi-period:{stock_id}"
     if not force_refresh:
@@ -624,6 +900,8 @@ def refresh_stock_payload(stock_id: str, limit: int = 120) -> dict[str, Any]:
     CACHE.delete_prefix(f"institutional:{stock_id}:")
     CACHE.delete_prefix(f"main-force:{stock_id}:")
     CACHE.delete_prefix(f"multi-period:{stock_id}")
+    CACHE.delete_prefix(f"pattern:{stock_id}")
+    CACHE.delete_prefix(f"signal:{stock_id}")
     return {
         "quote": fetch_quote_payload(stock_id, force_refresh=True),
         "chart": fetch_chart_payload(stock_id, timeframe="daily", limit=limit, force_refresh=True),
@@ -631,4 +909,6 @@ def refresh_stock_payload(stock_id: str, limit: int = 120) -> dict[str, Any]:
         "institutional": fetch_institutional_payload(stock_id, force_refresh=True),
         "main_force": fetch_main_force_payload(stock_id, force_refresh=True),
         "multi_period": fetch_multi_period_payload(stock_id, force_refresh=True),
+        "patterns": fetch_pattern_payload(stock_id, force_refresh=True),
+        "signals": fetch_signal_payload(stock_id, force_refresh=True),
     }

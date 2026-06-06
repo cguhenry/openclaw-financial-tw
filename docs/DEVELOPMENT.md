@@ -309,6 +309,47 @@ FinMind 提供的欄位更完整（包含還原股價、分點、融資券等）
   - 主力卡是否顯示 method / signal / note
   - 多週期縮圖是否回傳 3 組 period payload
 
+#### Phase 4：型態分析 / 操作建議 / AI 骨架
+
+**主要產出**
+
+- 新增 `/api/stocks/{stock_id}/patterns`
+- 新增 `/api/stocks/{stock_id}/signals`
+- 前端新增：
+  - 型態分析面板
+  - 操作建議文字面板
+  - 勝率儀表盤
+  - 明日方向預測面板
+
+**核心設計原則**
+
+- **型態分析是真的規則，不是 placeholder。**
+  - 目前用近 60 根日 K 的局部極值找 W 底 / M 頭輪廓，再檢查對稱性與頸線是否突破/跌破。
+
+- **操作建議是真規則引擎，不是靜態文案。**
+  - 會綜合：
+    - 趨勢方向
+    - 布林位置
+    - 關鍵價位
+    - W 底 / M 頭型態
+
+- **勝率與方向預測目前是 rule-based skeleton，不是假裝訓練好的 AI。**
+  - API 契約已先固定成：
+    - `win_rate`
+    - `direction_prediction`
+    - `basis`
+    - `note`
+  - 現階段的分數由技術指標、主力 proxy 與型態規則合成。
+  - 後續若接入真正模型，只要替換後端計算邏輯即可，不需要改 UI 結構。
+
+**驗證方式**
+
+- `pytest -q tests/test_dashboard_api.py`
+- `cd dashboard/web && npm run build`
+- API 檢查：
+  - `/patterns` 是否回傳 `w_bottom` / `m_top`
+  - `/signals` 是否回傳 `trading_suggestion` / `win_rate` / `direction_prediction`
+
 ### Phase 0：環境建置
 **日期**：2026-05-19  
 **主要產出**：

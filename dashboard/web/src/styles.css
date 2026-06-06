@@ -191,10 +191,76 @@ button, input { font: inherit; }
   font-size: 13px;
   margin: 10px 0 0;
 }
+.pattern-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.pattern-card {
+  border-radius: 16px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.pattern-card strong {
+  display: block;
+  margin-bottom: 8px;
+}
+.pattern-card p {
+  margin: 0 0 8px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.prediction-panel,
+.suggestion-panel {
+  min-height: 100%;
+}
+.prediction-layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) 1fr;
+  gap: 16px;
+  align-items: center;
+}
+.gauge-wrap {
+  display: flex;
+  justify-content: center;
+}
+.gauge-svg {
+  width: 100%;
+  max-width: 220px;
+}
+.gauge-value {
+  fill: var(--text-primary);
+  font-size: 24px;
+  font-weight: 700;
+}
+.gauge-label {
+  fill: var(--text-secondary);
+  font-size: 12px;
+}
+.prediction-bars {
+  display: grid;
+  gap: 10px;
+}
+.prediction-bars div {
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 10px 12px;
+}
+.prediction-bars label {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.prediction-bars strong {
+  font-size: 18px;
+}
 @media (max-width: 1080px) {
   .main-grid, .header-main, .header-stats, .bottom-grid { grid-template-columns: 1fr; }
   .price-block { text-align: left; }
   .price-delta { justify-content: flex-start; }
   .multi-period-grid { grid-template-columns: 1fr; }
   .multi-period-panel { grid-column: auto; }
+  .pattern-grid,
+  .prediction-layout { grid-template-columns: 1fr; }
 }

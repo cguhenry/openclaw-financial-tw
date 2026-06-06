@@ -47,3 +47,18 @@ def test_phase3_endpoints_return_payloads():
     assert "institutional" in refresh_payload
     assert "main_force" in refresh_payload
     assert "multi_period" in refresh_payload
+
+
+def test_phase4_endpoints_return_payloads():
+    patterns = client.get("/api/stocks/2330/patterns")
+    assert patterns.status_code == 200
+    patterns_payload = patterns.json()
+    assert "patterns" in patterns_payload
+    assert "w_bottom" in patterns_payload["patterns"]
+
+    signals = client.get("/api/stocks/2330/signals")
+    assert signals.status_code == 200
+    signals_payload = signals.json()
+    assert "trading_suggestion" in signals_payload
+    assert "win_rate" in signals_payload
+    assert "direction_prediction" in signals_payload
