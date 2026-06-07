@@ -171,7 +171,10 @@ def _fetch_dataset(
     if not isinstance(data, list):
         raise FinMindError("FinMind returned non-list data")
 
-    limited = data[:max_rows] if max_rows and max_rows > 0 else data
+    # FinMind time-series datasets are returned oldest -> newest. When callers
+    # ask for a bounded row count, they expect the most recent rows while
+    # keeping chronological order for charting and rolling indicators.
+    limited = data[-max_rows:] if max_rows and max_rows > 0 else data
     return {
         "source": "FinMind",
         "dataset": dataset,

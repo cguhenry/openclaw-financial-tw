@@ -86,6 +86,7 @@ button, input { font: inherit; }
 .tone-up .price-value, .tone-up .price-delta { color: var(--up); }
 .tone-down .price-value, .tone-down .price-delta { color: var(--down); }
 .main-grid { grid-template-columns: minmax(0, 1.9fr) minmax(320px, 0.95fr); align-items: start; }
+.sidebar-stack { display: grid; gap: 16px; align-content: start; }
 .panel { border-radius: 22px; padding: 18px; }
 .panel-header { display: flex; justify-content: space-between; gap: 12px; align-items: start; margin-bottom: 12px; }
 .panel-header h2, .panel h3 { margin: 0; }
