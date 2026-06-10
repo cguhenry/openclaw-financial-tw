@@ -27,7 +27,7 @@ export function MultiPeriodPanel({ data }: Props) {
     <section className="panel multi-period-panel">
       <div className="panel-header">
         <div>
-          <p className="eyebrow">Phase 3</p>
+          <p className="eyebrow">多週期</p>
           <h2>多週期縮圖</h2>
         </div>
       </div>

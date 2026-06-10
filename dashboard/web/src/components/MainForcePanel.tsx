@@ -29,7 +29,7 @@ export function MainForcePanel({ data }: Props) {
     <section className="panel sidebar-card">
       <div className="panel-header">
         <div>
-          <p className="eyebrow">Phase 3</p>
+          <p className="eyebrow">主力</p>
           <h2>主力進出</h2>
         </div>
       </div>

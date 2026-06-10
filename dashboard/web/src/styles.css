@@ -87,6 +87,23 @@ button, input { font: inherit; }
 .tone-down .price-value, .tone-down .price-delta { color: var(--down); }
 .main-grid { grid-template-columns: minmax(0, 1.9fr) minmax(320px, 0.95fr); align-items: start; }
 .sidebar-stack { display: grid; gap: 16px; align-content: start; }
+.dashboard-refresh-stamp {
+  margin: -4px 2px 16px 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: right;
+}
+.dashboard-masonry {
+  column-count: 2;
+  column-gap: 18px;
+}
+.dashboard-card {
+  break-inside: avoid;
+  margin-bottom: 18px;
+}
+.dashboard-card-hero {
+  column-span: all;
+}
 .panel { border-radius: 22px; padding: 18px; }
 .panel-header { display: flex; justify-content: space-between; gap: 12px; align-items: start; margin-bottom: 12px; }
 .panel-header h2, .panel h3 { margin: 0; }
@@ -103,6 +120,9 @@ button, input { font: inherit; }
 .muted-copy { margin: 14px 0 0; line-height: 1.6; }
 .roadmap-list { list-style: none; display: grid; gap: 10px; }
 .roadmap-list li { border-left: 3px solid rgba(255, 209, 102, 0.55); padding-left: 12px; color: var(--text-primary); }
+.sidebar-card + .sidebar-card {
+  margin-top: 0;
+}
 .bottom-grid { margin-top: 18px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .bottom-grid-secondary { align-items: stretch; }
 .mini-panel p { margin-bottom: 0; line-height: 1.6; }
@@ -222,6 +242,31 @@ button, input { font: inherit; }
   gap: 14px;
   margin-bottom: 14px;
 }
+.chip-flow-signal {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.chip-flow-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.chip-flow-stats div {
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 12px 14px;
+}
+.chip-flow-stats dt {
+  color: var(--text-secondary);
+}
+.chip-flow-stats dd {
+  margin: 6px 0 0;
+  font-size: 18px;
+  color: var(--text-primary);
+}
 .signal-dot {
   width: 18px;
   height: 18px;
@@ -330,6 +375,9 @@ button, input { font: inherit; }
 }
 @media (max-width: 1080px) {
   .main-grid, .header-main, .header-stats, .bottom-grid { grid-template-columns: 1fr; }
+  .dashboard-masonry {
+    column-count: 1;
+  }
   .price-block { text-align: left; }
   .price-delta { justify-content: flex-start; }
   .multi-period-grid { grid-template-columns: 1fr; }
@@ -340,5 +388,6 @@ button, input { font: inherit; }
   .alert-lists,
   .alert-form,
   .pattern-grid,
-  .prediction-layout { grid-template-columns: 1fr; }
+  .prediction-layout,
+  .chip-flow-stats { grid-template-columns: 1fr; }
 }

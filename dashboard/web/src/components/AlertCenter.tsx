@@ -310,7 +310,7 @@ export function AlertCenter({ stockId, quote, analysis, signals }: Props) {
     <section className="panel alert-center-panel">
       <div className="panel-header">
         <div>
-          <p className="eyebrow">Phase 4 / 5.5</p>
+          <p className="eyebrow">提醒</p>
           <h2>提醒中心</h2>
         </div>
         <div className="panel-meta">

@@ -26,7 +26,7 @@ export function PredictionPanel({ data }: Props) {
     <section className="panel prediction-panel">
       <div className="panel-header">
         <div>
-          <p className="eyebrow">Phase 4</p>
+          <p className="eyebrow">預測</p>
           <h2>勝率 / 方向預測</h2>
         </div>
       </div>

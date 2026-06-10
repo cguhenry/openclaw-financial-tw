@@ -11,7 +11,7 @@ export function SuggestionPanel({ data }: Props) {
     <section className="panel suggestion-panel">
       <div className="panel-header">
         <div>
-          <p className="eyebrow">Phase 4</p>
+          <p className="eyebrow">建議</p>
           <h2>操作建議</h2>
         </div>
       </div>

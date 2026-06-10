@@ -20,7 +20,7 @@ export function PatternAnalysisPanel({ data }: Props) {
     <section className="panel sidebar-card">
       <div className="panel-header">
         <div>
-          <p className="eyebrow">Phase 4</p>
+          <p className="eyebrow">型態</p>
           <h2>型態分析</h2>
         </div>
       </div>

@@ -1,15 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertCenter } from "./components/AlertCenter";
 import { CandlesPanel } from "./components/CandlesPanel";
+import { ChipFlowPanel } from "./components/ChipFlowPanel";
 import { IndicatorTable } from "./components/IndicatorTable";
-import { InstitutionalTable } from "./components/InstitutionalTable";
-import { MainForcePanel } from "./components/MainForcePanel";
 import { MultiPeriodPanel } from "./components/MultiPeriodPanel";
 import { PatternAnalysisPanel } from "./components/PatternAnalysisPanel";
-import { PredictionPanel } from "./components/PredictionPanel";
 import { SidebarPanel } from "./components/SidebarPanel";
 import { StockHeader } from "./components/StockHeader";
-import { SuggestionPanel } from "./components/SuggestionPanel";
 import {
   fetchAnalysis,
   fetchChart,
@@ -188,31 +185,30 @@ export default function App() {
         {error ? <div className="error-banner">{error}</div> : null}
 
         <StockHeader data={quote} />
+        <p className="dashboard-refresh-stamp">最後刷新 {lastRefreshLabel}</p>
 
-        <section className="main-grid">
-          <CandlesPanel data={chart} analysis={analysis} />
-          <div className="sidebar-stack">
-            <SidebarPanel quote={quote} chart={chart} analysis={analysis} mode={mode} lastRefreshLabel={lastRefreshLabel} />
-            <PredictionPanel data={signals} />
-            <SuggestionPanel data={signals} />
+        <section className="dashboard-masonry">
+          <div className="dashboard-card dashboard-card-hero">
+            <CandlesPanel data={chart} analysis={analysis} />
           </div>
-        </section>
-
-        <section className="bottom-grid">
-          <IndicatorTable analysis={analysis} />
-          <InstitutionalTable data={institutional} />
-          <MainForcePanel data={mainForce} />
-        </section>
-
-        <section className="bottom-grid bottom-grid-secondary">
-          <MultiPeriodPanel data={multiPeriod} />
-          <PatternAnalysisPanel data={patterns} />
-        </section>
-
-        <section className="bottom-grid bottom-grid-secondary">
-          <AlertCenter stockId={stockId} quote={quote} analysis={analysis} signals={signals} />
-          <div className="panel mini-panel"><p className="eyebrow">Phase 4.5 / 5</p><h3>模型重訓</h3><p>目前支援透過工具列的「重訓模型」按鈕或後端腳本離線重訓，模型檔會寫入 dashboard API 的 models 目錄。</p></div>
-          <div className="panel mini-panel"><p className="eyebrow">Next</p><h3>後續擴充</h3><p>下一步仍可把更多股票批次重訓、接入更完整 premium 分點欄位，或把日線模型改成全市場通用模型。</p></div>
+          <div className="dashboard-card">
+            <SidebarPanel chart={chart} analysis={analysis} mode={mode} signals={signals} />
+          </div>
+          <div className="dashboard-card">
+            <IndicatorTable analysis={analysis} />
+          </div>
+          <div className="dashboard-card">
+            <ChipFlowPanel institutional={institutional} mainForce={mainForce} />
+          </div>
+          <div className="dashboard-card">
+            <MultiPeriodPanel data={multiPeriod} />
+          </div>
+          <div className="dashboard-card">
+            <PatternAnalysisPanel data={patterns} />
+          </div>
+          <div className="dashboard-card">
+            <AlertCenter stockId={stockId} quote={quote} analysis={analysis} signals={signals} />
+          </div>
         </section>
       </main>
     </div>

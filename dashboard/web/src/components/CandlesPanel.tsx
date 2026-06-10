@@ -320,7 +320,7 @@ export function CandlesPanel({ data, analysis }: Props) {
     <section className="panel chart-panel">
       <div className="panel-header">
         <div>
-          <p className="eyebrow">Phase 1</p>
+          <p className="eyebrow">主圖</p>
           <h2>日線主圖 / 量能 / KD / MACD</h2>
         </div>
         <div className="panel-meta">

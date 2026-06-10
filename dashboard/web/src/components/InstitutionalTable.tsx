@@ -30,7 +30,7 @@ export function InstitutionalTable({ data }: Props) {
     <section className="panel table-panel">
       <div className="panel-header">
         <div>
-          <p className="eyebrow">Phase 3</p>
+          <p className="eyebrow">法人</p>
           <h2>三大法人</h2>
         </div>
       </div>

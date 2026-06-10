@@ -21,7 +21,7 @@ export function IndicatorTable({ analysis }: Props) {
     <section className="panel table-panel">
       <div className="panel-header">
         <div>
-          <p className="eyebrow">Phase 2</p>
+          <p className="eyebrow">技術指標</p>
           <h2>技術指標總覽表</h2>
         </div>
       </div>
