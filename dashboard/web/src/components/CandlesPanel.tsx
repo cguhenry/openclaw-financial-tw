@@ -117,6 +117,7 @@ export function CandlesPanel({ data, analysis }: Props) {
 
     const container = containerRef.current;
     const indicators = buildIndicators(data);
+    const labelRightOffset = container.clientWidth >= 1200 ? 16 : 10;
     const chart = createChart(container, {
       autoSize: true,
       height: 680,
@@ -132,7 +133,8 @@ export function CandlesPanel({ data, analysis }: Props) {
         borderColor: "#2d3447"
       },
       timeScale: {
-        borderColor: "#2d3447"
+        borderColor: "#2d3447",
+        rightOffset: labelRightOffset
       }
     });
 
