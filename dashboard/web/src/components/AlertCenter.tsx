@@ -44,6 +44,46 @@ const EMPTY_FORM: FormState = {
   delivery_targets: ""
 };
 
+const RULE_LABELS: Record<AlertRecord["rule_type"], string> = {
+  price_at_or_below: "跌到目標以下",
+  price_at_or_above: "漲到目標以上",
+  breakout: "突破",
+  breakdown: "跌破",
+  range_entry: "進入區間"
+};
+
+function describeEventTitle(event: AlertCenterResponse["recent_events"][number]): string {
+  if (event.status === "test") {
+    return "測試事件";
+  }
+  const statuses = event.delivery_results.map((item) => String(item.status ?? ""));
+  if (statuses.includes("error")) {
+    return "提醒觸發（配送異常）";
+  }
+  if (statuses.includes("queued")) {
+    return "提醒觸發（待配送）";
+  }
+  return "提醒觸發";
+}
+
+function summarizeDelivery(event: AlertCenterResponse["recent_events"][number]): string | null {
+  if (!event.delivery_results.length) {
+    return null;
+  }
+  const counts = event.delivery_results.reduce<Record<string, number>>((acc, item) => {
+    const key = String(item.status ?? "unknown");
+    acc[key] = (acc[key] ?? 0) + 1;
+    return acc;
+  }, {});
+  const labels = [
+    counts.sent ? `已送達 ${counts.sent}` : null,
+    counts.queued ? `待配送 ${counts.queued}` : null,
+    counts.error ? `失敗 ${counts.error}` : null,
+    counts.skipped ? `略過 ${counts.skipped}` : null
+  ].filter(Boolean);
+  return labels.length ? labels.join(" / ") : null;
+}
+
 function splitList(value: string): string[] {
   return value
     .split(",")
@@ -159,11 +199,23 @@ export function AlertCenter({ stockId, quote, analysis, signals }: Props) {
   const [center, setCenter] = useState<AlertCenterResponse | null>(null);
   const [preview, setPreview] = useState<AiAlertPreviewResponse | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [showTestEvents, setShowTestEvents] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const latestEventIdRef = useRef<string | null>(null);
   const localPreview = useMemo(() => buildLocalPreview(stockId, analysis, signals), [analysis, signals, stockId]);
+  const displayedEvents = useMemo(() => {
+    if (!center) {
+      return [];
+    }
+    const base = showTestEvents
+      ? [...center.recent_events, ...center.recent_test_events]
+      : center.recent_events;
+    return base
+      .slice()
+      .sort((left, right) => Date.parse(right.triggered_at) - Date.parse(left.triggered_at));
+  }, [center, showTestEvents]);
 
   async function loadCenter() {
     const nextCenter = await fetchAlerts(stockId);
@@ -316,6 +368,7 @@ export function AlertCenter({ stockId, quote, analysis, signals }: Props) {
         <div className="panel-meta">
           <span className={badgeTone}>24h 觸發 {center?.summary.triggered_24h ?? 0}</span>
           <span>啟用中 {center?.summary.enabled_count ?? 0}</span>
+          <span>測試 {center?.summary.test_triggered_24h ?? 0}</span>
           <span>輪詢 {center?.summary.poll_interval_seconds ?? "--"}s</span>
         </div>
       </div>
@@ -439,17 +492,30 @@ export function AlertCenter({ stockId, quote, analysis, signals }: Props) {
 
         <div className="alert-column">
           <h3>最近事件</h3>
+          <div className="inline-actions">
+            <button type="button" className="secondary-button" onClick={() => setShowTestEvents((current) => !current)}>
+              {showTestEvents ? "隱藏測試事件" : "顯示測試事件"}
+            </button>
+          </div>
           <div className="suggestion-stack">
-            {center?.recent_events.length ? center.recent_events.map((event) => (
+            {displayedEvents.length ? displayedEvents.map((event) => (
               <article key={event.id} className="alert-card event-card">
-                <strong>{event.status === "test" ? "測試事件" : "提醒觸發"}</strong>
+                <strong>{describeEventTitle(event)}</strong>
                 <p>{event.message}</p>
+                <p>{event.side.toUpperCase()} / {RULE_LABELS[event.rule_type as AlertRecord["rule_type"]] ?? event.rule_type}</p>
+                {summarizeDelivery(event) ? <p>{summarizeDelivery(event)}</p> : null}
                 <div className="panel-meta">
                   <span>{new Date(event.triggered_at).toLocaleString("zh-TW", { hour12: false })}</span>
                   <span>{event.price.toFixed(2)}</span>
                 </div>
               </article>
-            )) : <p className="muted-copy">最近尚無事件。</p>}
+            )) : (
+              <p className="muted-copy">
+                {center?.recent_test_events.length
+                  ? "目前尚無真實觸發事件；如需排查通知流程，可展開測試事件。"
+                  : "最近尚無事件。"}
+              </p>
+            )}
           </div>
         </div>
       </div>

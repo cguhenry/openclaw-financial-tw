@@ -289,9 +289,9 @@ export type AlertEvent = {
   triggered_at: string;
   price: number;
   message: string;
-  rule_type: string;
-  side: string;
-  status: string;
+  rule_type: AlertRecord["rule_type"];
+  side: AlertRecord["side"];
+  status: "triggered" | "test";
   delivery_results: Array<Record<string, unknown>>;
 };
 
@@ -299,9 +299,13 @@ export type AlertCenterResponse = {
   stock: { stock_id: string };
   alerts: AlertRecord[];
   recent_events: AlertEvent[];
+  recent_test_events: AlertEvent[];
   summary: {
     enabled_count: number;
     triggered_24h: number;
+    test_triggered_24h: number;
+    recent_event_count: number;
+    recent_test_event_count: number;
     imported_target_count: number;
     background_polling: boolean;
     poll_interval_seconds: number;

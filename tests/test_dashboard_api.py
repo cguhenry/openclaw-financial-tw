@@ -1,9 +1,27 @@
+from pathlib import Path
+
+import pytest
 from fastapi.testclient import TestClient
 
 from dashboard.api.app.main import app
+from dashboard.api.app.services.alerts import alert_service
 
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def isolate_alert_state(tmp_path: Path):
+    original_state_path = alert_service._state_path
+    original_outbox_path = alert_service._outbox_path
+    alert_service._state_path = tmp_path / "dashboard-alerts.json"
+    alert_service._outbox_path = tmp_path / "dashboard-notification-outbox.jsonl"
+    alert_service._ensure_paths()
+    try:
+        yield
+    finally:
+        alert_service._state_path = original_state_path
+        alert_service._outbox_path = original_outbox_path
 
 
 def test_health_endpoint_returns_ok():
@@ -98,6 +116,8 @@ def test_alert_center_endpoints_return_payloads():
     assert alerts.status_code == 200
     alerts_payload = alerts.json()
     assert "alerts" in alerts_payload
+    assert alerts_payload["recent_events"] == []
+    assert alerts_payload["recent_test_events"] == []
 
     test_delivery = client.post(
         "/api/stocks/2330/alerts/test",
@@ -106,6 +126,14 @@ def test_alert_center_endpoints_return_payloads():
     assert test_delivery.status_code == 200
     test_payload = test_delivery.json()
     assert "events" in test_payload
+
+    alerts_after_test = client.get("/api/stocks/2330/alerts")
+    assert alerts_after_test.status_code == 200
+    alerts_after_payload = alerts_after_test.json()
+    assert alerts_after_payload["recent_events"] == []
+    assert len(alerts_after_payload["recent_test_events"]) == 1
+    assert alerts_after_payload["summary"]["triggered_24h"] == 0
+    assert alerts_after_payload["summary"]["test_triggered_24h"] == 1
 
     targets = client.get("/api/stocks/notification-targets/import")
     assert targets.status_code == 200

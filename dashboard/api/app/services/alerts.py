@@ -116,20 +116,31 @@ class AlertService:
         alerts = [item for item in state["alerts"] if item["stock_id"] == stock_id]
         events = [item for item in state["events"] if item["stock_id"] == stock_id]
         events.sort(key=lambda item: item["triggered_at"], reverse=True)
+        live_events = [item for item in events if item.get("status") != "test"]
+        test_events = [item for item in events if item.get("status") == "test"]
         imported_targets = self.import_notification_targets(peek_only=True)
         recent_24h_cutoff = _now_utc() - timedelta(hours=24)
         triggered_24h = sum(
             1
-            for item in events
+            for item in live_events
+            if datetime.fromisoformat(item["triggered_at"]) >= recent_24h_cutoff
+        )
+        test_triggered_24h = sum(
+            1
+            for item in test_events
             if datetime.fromisoformat(item["triggered_at"]) >= recent_24h_cutoff
         )
         return {
             "stock": {"stock_id": stock_id},
             "alerts": sorted(alerts, key=lambda item: item["created_at"], reverse=True),
-            "recent_events": events[: settings.alert_event_limit],
+            "recent_events": live_events[: settings.alert_event_limit],
+            "recent_test_events": test_events[: settings.alert_event_limit],
             "summary": {
                 "enabled_count": sum(1 for item in alerts if item["enabled"]),
                 "triggered_24h": triggered_24h,
+                "test_triggered_24h": test_triggered_24h,
+                "recent_event_count": len(live_events),
+                "recent_test_event_count": len(test_events),
                 "imported_target_count": len(imported_targets["targets"]),
                 "background_polling": self._poller_started,
                 "poll_interval_seconds": settings.alert_poll_interval_seconds,
